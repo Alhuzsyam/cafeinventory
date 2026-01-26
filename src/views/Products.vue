@@ -5,7 +5,8 @@ import axios from 'axios'
 // --- STATE UTAMA ---
 const products = ref([])
 const categories = ref([])
-const API_URL = "http://127.0.0.1:8000"
+// const API_URL = "http://127.0.0.1:8000"
+const API_URL = "https://api.inventorycafe.space"
 const isSubmitting = ref(false)
 
 // State Filter Tampilan

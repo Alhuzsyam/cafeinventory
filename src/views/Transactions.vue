@@ -318,7 +318,8 @@ const products = ref([])
 const logs = ref([])
 
 // ⚠️ Pastikan port 8000 sesuai dengan port FastAPI Anda
-const API_URL = "http://localhost:8000" 
+// const API_URL = "http://localhost:8000" 
+const API_URL = "https://api.inventorycafe.space"
 
 
 const isSubmitting = ref(false)

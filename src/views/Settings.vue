@@ -4,7 +4,8 @@ import axios from 'axios'
 
 const categories = ref([])
 const form = ref({ name: "", description: "" })
-const API_URL = "http://127.0.0.1:8000"
+// const API_URL = "http://127.0.0.1:8000"
+const API_URL = "https://api.inventorycafe.space"
 const isSubmitting = ref(false)
 
 const fetchCategories = async () => {
