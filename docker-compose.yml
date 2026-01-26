@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  frontend:
+    build: .
+    container_name: cafe_frontend
+    restart: always
+    ports:
+      - "5173:5173"
+    environment:
+      # URL Backend kamu (disesuaikan dengan port FastAPI)
+      - VITE_API_URL=http://localhost:8000
+    volumes:
+      - .:/app
+      - /app/node_modules
+    networks:
+      - cafe-network
+
+networks:
+  cafe-network:
+    external: true # Menggunakan network yang sama dengan Backend/DB
