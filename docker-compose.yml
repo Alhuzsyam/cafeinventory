@@ -9,7 +9,8 @@ services:
       - "5173:5173"
     environment:
       # URL Backend kamu (disesuaikan dengan port FastAPI)
-      - VITE_API_URL=http://localhost:8000
+      # - VITE_API_URL=http://localhost:8000
+      - VITE_API_URL=https://api.inventorycafe.space
     volumes:
       - .:/app
       - /app/node_modules
