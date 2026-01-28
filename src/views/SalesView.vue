@@ -17,6 +17,19 @@ const customerName = ref("")
 const paymentMethod = ref('cash')
 const cashAmount = ref(0)
 
+import EscPosEncoder from 'esc-pos-encoder';
+
+// Helper untuk memuat gambar agar bisa dibaca oleh encoder
+const loadImage = (url) => {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = "Anonymous"; // Penting jika gambar dari domain lain
+        img.onload = () => resolve(img);
+        img.onerror = (e) => reject(e);
+        img.src = url;
+    });
+};
+
 // HANYA SATU DEKLARASI changeAmount DI SINI
 const changeAmount = computed(() => {
     if (paymentMethod.value === 'qris') return 0
@@ -151,22 +164,73 @@ const checkout = async () => {
     } catch (e) { alert("Gagal transaksi") } finally { isProcessing.value = false }
 }
 
+// --- LOGIKA CETAK THERMAL BLUETOOTH ---
+
 const printReceipt = async () => {
-  await nextTick()
-  printJS({
-    printable: 'print-area',
-    type: 'html',
-    scanStyles: false,
-    style: `
-      .receipt { width: 50mm; font-family: 'Courier New'; font-size: 10px; color: #000; margin: 0 auto; }
-      .text-center { text-align: center; }
-      .d-flex { display: flex; }
-      .justify-content-between { display: flex; justify-content: space-between; }
-      .fw-bold { font-weight: bold; }
-      .divider { margin: 5px 0; border-top: 1px dashed #000; }
-    `
-  })
-}
+  if (!lastTransaction.value) return;
+
+  try {
+    // 1. Request Device (Hanya jika belum terhubung)
+    // Catatan: Browser memerlukan interaksi user (klik tombol) untuk keamanan
+    const device = await navigator.bluetooth.requestDevice({
+      filters: [{ services: ['000018f0-0000-1000-8000-00805f9b34fb'] }],
+      optionalServices: ['000018f0-0000-1000-8000-00805f9b34fb']
+    });
+
+    const server = await device.gatt.connect();
+    const service = await server.getPrimaryService('000018f0-0000-1000-8000-00805f9b34fb');
+    const characteristic = await service.getCharacteristic('00002af1-0000-1000-8000-00805f9b34fb');
+
+    // 2. Siapkan Format ESC/POS (Bahasa Printer Thermal)
+    const encoder = new TextEncoder();
+    
+    // Kode perintah printer (Hex)
+    const init = '\x1B\x40';      // Reset/Inisialisasi
+    const center = '\x1B\x61\x01'; // Rata Tengah
+    const left = '\x1B\x61\x00';   // Rata Kiri
+    const boldOn = '\x1B\x45\x01'; // Tebal ON
+    const boldOff = '\x1B\x45\x00';// Tebal OFF
+    const feed = '\x0A\x0A\x0A';   // Spasi akhir
+
+    let content = init + center + boldOn + "DEGENTONG CAFE\n" + boldOff;
+    content += "Banyuwangi, Jawa Timur\n";
+    content += "@created by AI-huzwiri\n";
+    content += "--------------------------------\n" + left;
+    content += `No  : ${lastTransaction.value.id}\n`;
+    content += `Tgl : ${lastTransaction.value.date}\n`;
+    content += `Plg : ${lastTransaction.value.customer}\n`;
+    content += "--------------------------------\n";
+    
+
+    // Item Pesanan
+    lastTransaction.value.items.forEach(item => {
+      content += `${item.name}\n`;
+      content += `${item.qty} x ${item.price.toLocaleString()} = ${(item.qty * item.price).toLocaleString()}\n`;
+    });
+
+    content += "--------------------------------\n" + boldOn;
+    content += `TOTAL   : Rp ${lastTransaction.value.total.toLocaleString()}\n` + boldOff;
+    content += `BAYAR   : Rp ${lastTransaction.value.cash.toLocaleString()}\n`;
+    content += `KEMBALI : Rp ${lastTransaction.value.change.toLocaleString()}\n`;
+    content += center + "\nTERIMA KASIH\n" + feed;
+
+    // 3. Kirim Data dalam Potongan (Chunking)
+    // Bluetooth memiliki limit MTU (biasanya 20-512 byte)
+    const dataArray = encoder.encode(content);
+    const chunkSize = 20; 
+    for (let i = 0; i < dataArray.length; i += chunkSize) {
+      const chunk = dataArray.slice(i, i + chunkSize);
+      await characteristic.writeValue(chunk);
+    }
+
+    await device.gatt.disconnect();
+    showSuccessModal.value = false; // Tutup modal setelah sukses
+  } catch (error) {
+    console.error("Gagal Cetak:", error);
+    alert("Koneksi Printer Terputus. Pastikan Bluetooth Aktif.");
+  }
+};
+
 const saveAsDebt = async () => {
     if (!customerName.value) return alert("Nama pelanggan wajib diisi!");
     if (cart.value.length === 0) return alert("Keranjang kosong!");
@@ -359,57 +423,49 @@ onUnmounted(stopCamera)
 <div id="print-area" v-if="lastTransaction">
     <div class="receipt">
         <div class="text-center">
-            <h4 class="fw-bold mb-0" style="font-size: 14px;">DEGENTONG CAFE</h4>
-            <p class="m-0 small">Banyuwangi, Jawa Timur</p>
-            <p class="m-0 small">WA: 0812-xxxx-xxxx</p>
+            <span class="fw-bold" style="font-size: 14px;">DEGENTONG CAFE</span><br>
+            <span style="font-size: 10px;">Banyuwangi, Jawa Timur</span>
         </div>
         
-        <div class="divider">================================</div>
-        
-        <div class="receipt-info small">
-            <div class="d-flex justify-content-between">
-                <span>No: {{ lastTransaction.id }}</span>
+        <div class="divider"></div>
+        <div style="font-size: 10px;">
+            <div class="justify-content-between">
+                <span>ID: {{ lastTransaction.id }}</span>
                 <span>{{ lastTransaction.payment_method }}</span>
             </div>
-            <p class="m-0">{{ lastTransaction.date }}</p>
-            <p class="m-0">Cust: {{ lastTransaction.customer }}</p>
+            <div>Tgl: {{ lastTransaction.date }}</div>
+            <div>Plg: {{ lastTransaction.customer }}</div>
         </div>
-        
-        <div class="divider">--------------------------------</div>
-        
+        <div class="divider"></div>
+
         <div class="receipt-items">
-            <div v-for="item in lastTransaction.items" :key="item.menu_id" class="mb-1">
-                <div class="fw-bold">{{ item.name }}</div>
-                <div class="d-flex justify-content-between small">
+            <div v-for="item in lastTransaction.items" :key="item.menu_id" style="margin-bottom: 4px;">
+                <div>{{ item.name }}</div>
+                <div class="justify-content-between">
                     <span>{{ item.qty }} x {{ item.price.toLocaleString() }}</span>
                     <span>{{ (item.qty * item.price).toLocaleString() }}</span>
                 </div>
-                <div v-if="item.note" class="small italic text-muted">({{ item.note }})</div>
             </div>
         </div>
-        
-        <div class="divider">--------------------------------</div>
-        
-        <div class="receipt-total fw-bold">
-            <div class="d-flex justify-content-between">
+
+        <div class="divider"></div>
+        <div class="fw-bold">
+            <div class="justify-content-between">
                 <span>TOTAL</span><span>Rp {{ lastTransaction.total.toLocaleString() }}</span>
             </div>
-            <div class="d-flex justify-content-between">
-                <span>BAYAR</span><span>Rp {{ lastTransaction.cash.toLocaleString() }}</span>
+            <div class="justify-content-between">
+                <span>TUNAI</span><span>Rp {{ lastTransaction.cash.toLocaleString() }}</span>
             </div>
-            <div class="d-flex justify-content-between">
+            <div class="justify-content-between">
                 <span>KEMBALI</span><span>Rp {{ lastTransaction.change.toLocaleString() }}</span>
             </div>
         </div>
-        
-        <div class="divider">================================</div>
-        
-        <div class="text-center mt-3">
-            <p class="fw-bold mb-1">TERIMA KASIH</p>
-            <p class="small">Selamat Menikmati!</p>
-            <p class="watermark mt-2">AI-POS by Degentong</p>
+        <div class="divider"></div>
+        <div class="text-center" style="margin-top: 10px;">
+            <span>TERIMA KASIH</span><br>
+            <span style="font-size: 9px;">Powered by Degentong AI</span>
         </div>
-    </div>
+        <br> </div>
 </div>
 
     <div id="print-area" v-if="lastTransaction">

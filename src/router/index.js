@@ -10,7 +10,8 @@ import SalesView from '../views/SalesView.vue'
 import ReportView from '../views/ReportView.vue'
 import ExpenseView from '../views/ExpenseView.vue'
 import DebtView from '../views/DebtView.vue'
-import LoginView from '../views/LoginView.vue' // Tambahkan Import Login
+import LoginView from '../views/LoginView.vue'
+import PrinterView from '../views/PrinterView.vue' 
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -74,6 +75,12 @@ const router = createRouter({
       name: 'debts',
       component: DebtView, // Sudah diperbaiki dari dynamic import ganda
       meta: { requiresAuth: true }
+    },
+    {
+    path: '/printer',
+    name: 'printer',
+    component: PrinterView,
+    meta: { requiresAuth: true }
     },
   ]
 })

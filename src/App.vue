@@ -73,6 +73,10 @@ const handleLogout = () => {
           <i class="fa-solid fa-gear nav-icon"></i>
           <span>Pengaturan</span>
         </RouterLink>
+        <RouterLink to="/printer" class="nav-link" active-class="active">
+          <i class="fa-solid fa-print nav-icon"></i>
+          <span>Set Printer</span>
+        </RouterLink>
       </nav>
 
       <div class="mt-auto p-3 border-top">
