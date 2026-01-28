@@ -19,4 +19,4 @@ services:
 
 networks:
   cafe-network:
-    external: true # Menggunakan network yang sama dengan Backend/DB
+    external: true 

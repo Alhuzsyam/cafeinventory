@@ -5,7 +5,7 @@ import axios from 'axios'
 const products = ref([])
 const logs = ref([]) 
 const usageReport = ref([]) // Data baru untuk laporan akumulasi
-//const API_URL = "http://127.0.0.1:8000"
+// const API_URL = "http://127.0.0.1:8000"
 const API_URL = "https://api.inventorycafe.space"
 const searchQuery = ref("")
 const activeTab = ref('logs') // State untuk tab: 'logs' atau 'usage'
