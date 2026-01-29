@@ -242,10 +242,11 @@ const saveAsDebt = async () => {
         const payload = {
         customer_name: customerName.value,
         items: cart.value.map(item => ({
-            menu_item_id: item.menu_id, // Pastikan 'menu_id' ada di object cart kamu
+            menu_item_id: item.menu_id,
             menu_name: item.name,
             quantity: item.qty,
-            price_at_moment: item.price
+            price_at_moment: item.price,
+            note: item.note || ""
         }))
     };
         
