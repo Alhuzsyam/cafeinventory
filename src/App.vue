@@ -1,87 +1,100 @@
 <script setup>
-import { computed } from 'vue'
+import { ref, computed } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 
 const route = useRoute()
 const router = useRouter()
+const isCollapsed = ref(false)
 
-// Cek apakah halaman sekarang adalah login agar layout tidak rusak
 const isLoginPage = computed(() => route.name === 'login' || route.path === '/login')
 
 const handleLogout = () => {
   localStorage.removeItem('isAuthenticated')
   router.push('/login')
 }
+
+const toggleSidebar = () => {
+  isCollapsed.value = !isCollapsed.value
+}
 </script>
 
 <template>
-  <div id="app-layout" :class="{ 'login-mode': isLoginPage }">
+  <div id="app-layout" :class="{ 'login-mode': isLoginPage, 'sidebar-collapsed': isCollapsed }">
     
     <aside v-if="!isLoginPage" class="sidebar d-none d-md-flex flex-column bg-white border-end">
-      <div class="sidebar-header text-center py-4">
-        <div class="brand-icon mb-2">
-            <i class="fa-solid fa-leaf text-success"></i>
+      <div class="sidebar-header d-flex align-items-center px-3 py-4" :class="isCollapsed ? 'justify-content-center' : 'justify-content-between'">
+        <div class="brand-wrapper d-flex align-items-center gap-2" v-if="!isCollapsed">
+            <i class="fa-solid fa-leaf text-success fs-4"></i>
+            <div class="brand-text">
+                <h5 class="fw-bold m-0 text-dark-green">Degentong</h5>
+                <small class="text-muted text-uppercase" style="font-size: 0.6rem;">Smart Inventory</small>
+            </div>
         </div>
-        <h5 class="fw-bold m-0 text-dark-green">Degentong</h5>
-        <small class="text-muted text-uppercase tracking-wide" style="font-size: 0.65rem;">Smart Inventory</small>
+        <i v-else class="fa-solid fa-leaf text-success fs-3"></i>
+        
+        <button @click="toggleSidebar" class="btn btn-sm btn-collapse d-none d-md-block shadow-sm">
+            <i class="fa-solid" :class="isCollapsed ? 'fa-chevron-right' : 'fa-chevron-left'"></i>
+        </button>
       </div>
 
-      <nav class="nav flex-column px-3 gap-1 mt-2">
-        <RouterLink to="/" class="nav-link" active-class="active">
+      <nav class="nav flex-column px-2 gap-1 mt-2">
+        <RouterLink to="/" class="nav-link" active-class="active" title="Dashboard">
           <i class="fa-solid fa-chart-pie nav-icon"></i>
-          <span>Dashboard</span>
+          <span v-if="!isCollapsed">Dashboard</span>
         </RouterLink>
-        <RouterLink to="/report" class="nav-link" active-class="active">
+        <RouterLink to="/report" class="nav-link" active-class="active" title="Laporan">
           <i class="fa-solid fa-file-invoice nav-icon"></i>
-          <span>Laporan</span>
+          <span v-if="!isCollapsed">Laporan</span>
         </RouterLink>
-        <RouterLink to="/debts" class="nav-link" active-class="active">
+        <RouterLink to="/debts" class="nav-link" active-class="active" title="Buku Hutang">
           <i class="fa-solid fa-book-bookmark nav-icon"></i>
-          <span>Buku Hutang</span>
+          <span v-if="!isCollapsed">Buku Hutang</span>
         </RouterLink>
 
-        <div class="nav-divider mt-3 mb-2">MASTER DATA</div>
+        <div class="nav-divider mt-3 mb-2 px-3 text-muted" v-if="!isCollapsed">MASTER DATA</div>
+        <hr v-else class="my-3 mx-2">
         
-        <RouterLink to="/products" class="nav-link" active-class="active">
+        <RouterLink to="/products" class="nav-link" active-class="active" title="Produk">
           <i class="fa-solid fa-box-open nav-icon"></i>
-          <span>Produk</span>
+          <span v-if="!isCollapsed">Produk</span>
         </RouterLink>
 
-        <div class="nav-divider mt-3 mb-2">OPERASIONAL</div>
+        <div class="nav-divider mt-3 mb-2 px-3 text-muted" v-if="!isCollapsed">OPERASIONAL</div>
+        <hr v-else class="my-3 mx-2">
 
-        <RouterLink to="/transactions" class="nav-link" active-class="active">
+        <RouterLink to="/transactions" class="nav-link" active-class="active" title="Stok Movement">
           <i class="fa-solid fa-right-left nav-icon"></i>
-          <span>Stok Movement</span>
+          <span v-if="!isCollapsed">Stok Movement</span>
         </RouterLink>
-
-        <RouterLink to="/sales" class="nav-link" active-class="active">
+        <RouterLink to="/sales" class="nav-link" active-class="active" title="Kasir / POS">
           <i class="fa-solid fa-cash-register nav-icon"></i>
-          <span>Kasir / POS</span>
+          <span v-if="!isCollapsed">Kasir / POS</span>
         </RouterLink>
-        <RouterLink to="/expenses" class="nav-link" active-class="active">
+        <RouterLink to="/expenses" class="nav-link" active-class="active" title="Pengeluaran">
           <i class="fa-solid fa-wallet nav-icon"></i>
-          <span>Pengeluaran</span>
+          <span v-if="!isCollapsed">Pengeluaran</span>
         </RouterLink>
         
-        <div class="nav-divider mt-3 mb-2">LAINNYA</div>
+        <div class="nav-divider mt-3 mb-2 px-3 text-muted" v-if="!isCollapsed">LAINNYA</div>
+        <hr v-else class="my-3 mx-2">
 
-        <RouterLink to="/watchlist" class="nav-link" active-class="active">
+        <RouterLink to="/watchlist" class="nav-link" active-class="active" title="Watchlist">
           <i class="fa-solid fa-tv nav-icon"></i>
-          <span>Watchlist (KDS)</span>
+          <span v-if="!isCollapsed">Watchlist (KDS)</span>
         </RouterLink>
-        <RouterLink to="/settings" class="nav-link" active-class="active">
-          <i class="fa-solid fa-gear nav-icon"></i>
-          <span>Pengaturan</span>
-        </RouterLink>
-        <RouterLink to="/printer" class="nav-link" active-class="active">
+        <RouterLink to="/printer" class="nav-link" active-class="active" title="Printer">
           <i class="fa-solid fa-print nav-icon"></i>
-          <span>Set Printer</span>
+          <span v-if="!isCollapsed">Set Printer</span>
+        </RouterLink>
+        <RouterLink to="/settings" class="nav-link" active-class="active" title="Pengaturan">
+          <i class="fa-solid fa-gear nav-icon"></i>
+          <span v-if="!isCollapsed">Pengaturan</span>
         </RouterLink>
       </nav>
 
       <div class="mt-auto p-3 border-top">
-        <div class="d-flex align-items-center justify-content-between">
-          <div class="d-flex align-items-center gap-2">
+        <div class="d-flex align-items-center gap-2" :class="isCollapsed ? 'justify-content-center' : 'justify-content-between'">
+          <div class="d-flex align-items-center gap-2" v-if="!isCollapsed">
             <div class="avatar bg-dark-green text-white rounded-circle d-flex align-items-center justify-content-center fw-bold small">BW</div>
             <div style="line-height: 1.1;">
               <div class="fw-bold text-dark-green" style="font-size: 0.75rem;">Banjarwangi</div>
@@ -98,12 +111,12 @@ const handleLogout = () => {
     <main class="main-content flex-grow-1" :class="{ 'bg-light': !isLoginPage }">
       
       <nav v-if="!isLoginPage" class="navbar navbar-light bg-white border-bottom d-md-none px-3 sticky-top shadow-sm">
-        <span class="navbar-brand fw-bold text-dark-green fs-5">
+        <span class="navbar-brand fw-bold text-dark-green fs-5 m-0">
             <i class="fa-solid fa-leaf text-success me-2"></i>Degentong
         </span>
       </nav>
 
-      <div :class="isLoginPage ? '' : 'container-fluid p-3 p-md-4 pb-5 mb-5 mb-md-0'">
+      <div :class="isLoginPage ? '' : 'content-wrapper container-fluid p-3 p-md-4 pb-5 mb-5 mb-md-0'">
         <RouterView />
       </div>
 
@@ -121,7 +134,6 @@ const handleLogout = () => {
             <RouterLink to="/sales" class="bnav-center-btn shadow" active-class="active">
                 <i class="fa-solid fa-cash-register"></i>
             </RouterLink>
-            <span class="bnav-center-label">Kasir</span>
         </div>
 
         <RouterLink to="/transactions" class="bnav-item" active-class="active">
@@ -139,58 +151,124 @@ const handleLogout = () => {
 </template>
 
 <style>
-/* CSS Global & Reset */
-:root { --dark-green: #2c4a3b; }
-body { margin: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
-#app-layout { display: flex; min-height: 100vh; }
-.login-mode { display: block !important; } /* Pastikan mode login tidak flex sidebar */
+:root { --dark-green: #2c4a3b; --sidebar-width: 250px; --sidebar-collapsed: 80px; }
+body { margin: 0; font-family: 'Plus Jakarta Sans', sans-serif; background: #f8f9fa; }
+
+/* Flex context untuk mencegah horizontal scroll global */
+#app-layout { 
+    display: flex; 
+    min-height: 100vh; 
+    width: 100vw;
+    overflow-x: hidden;
+    transition: all 0.3s; 
+}
+.login-mode { display: block !important; }
 </style>
 
 <style scoped>
-.text-dark-green { color: #2c4a3b; }
-.bg-dark-green { background-color: #2c4a3b; }
+.text-dark-green { color: var(--dark-green); }
+.bg-dark-green { background-color: var(--dark-green); }
 
-/* SIDEBAR */
+/* --- SIDEBAR FIX --- */
 .sidebar {
-    width: 250px;
+    /* Gunakan flex basis untuk mengunci lebar */
+    flex: 0 0 var(--sidebar-width);
+    width: var(--sidebar-width);
+    min-width: var(--sidebar-width);
+    max-width: var(--sidebar-width);
+    
     height: 100vh;
     position: sticky;
     top: 0;
+    background-color: white;
     overflow-y: auto;
+    overflow-x: hidden;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 1040;
+}
+
+/* Mode Collapse */
+.sidebar-collapsed .sidebar {
+    flex: 0 0 var(--sidebar-collapsed);
+    width: var(--sidebar-collapsed);
+    min-width: var(--sidebar-collapsed);
+    max-width: var(--sidebar-collapsed);
+}
+
+/* --- MAIN CONTENT FIX --- */
+.main-content {
+    flex: 1; /* Biar dia yang mengambil sisa ruang */
+    min-width: 0; /* TRICK: Penting agar konten di dalam (chart/table) tidak mendorong flexbox */
+    display: flex;
+    flex-direction: column;
+    overflow-x: hidden;
+}
+
+.content-wrapper {
+    width: 100%;
+}
+
+.btn-collapse {
+    border: 1px solid #eee;
+    background: white;
+    border-radius: 8px;
+    padding: 2px 8px;
+    color: #adb5bd;
 }
 
 .nav-link {
     display: flex;
     align-items: center;
     color: #6c757d;
-    padding: 10px 15px;
-    border-radius: 10px;
+    padding: 12px 15px;
+    border-radius: 12px;
     text-decoration: none;
     font-size: 0.9rem;
-    margin-bottom: 2px;
+    white-space: nowrap;
+    transition: all 0.2s;
+}
+
+.sidebar-collapsed .nav-link {
+    padding: 12px;
+    justify-content: center;
 }
 
 .nav-link.active {
     background-color: #e6f0eb;
-    color: #2c4a3b;
+    color: var(--dark-green);
     font-weight: 700;
 }
 
-.nav-icon { width: 24px; margin-right: 10px; text-align: center; }
-.nav-divider { font-size: 0.65rem; font-weight: 800; color: #adb5bd; padding-left: 15px; margin-top: 15px; }
+.nav-icon { 
+    min-width: 24px;
+    font-size: 1.1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
 
-/* MAIN CONTENT */
-.main-content { overflow-x: hidden; }
+.nav-link span {
+    margin-left: 12px;
+    transition: opacity 0.2s;
+}
 
-/* MOBILE NAV */
+.sidebar-collapsed .nav-link span {
+    display: none;
+    opacity: 0;
+}
+
+.nav-divider { font-size: 0.65rem; font-weight: 800; color: #adb5bd; margin-top: 15px; }
+
+/* BOTTOM NAV (Mobile Only) */
 .bottom-nav {
     position: fixed;
     bottom: 0; left: 0; right: 0;
     height: 65px;
     background: white;
     display: flex;
-    box-shadow: 0 -2px 10px rgba(0,0,0,0.05);
+    box-shadow: 0 -5px 15px rgba(0,0,0,0.05);
     z-index: 1030;
+    border-top: 1px solid #f0f0f0;
 }
 
 .bnav-item {
@@ -201,16 +279,28 @@ body { margin: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
     justify-content: center;
     color: #adb5bd;
     text-decoration: none;
-    font-size: 0.6rem;
+    font-size: 0.65rem;
 }
 
-.bnav-item.active { color: #2c4a3b; }
+.bnav-item.active { color: var(--dark-green); font-weight: 700; }
 
-.bnav-center-wrapper { position: relative; width: 20%; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding-bottom: 8px;}
-.bnav-center-btn { position: absolute; top: -25px; width: 50px; height: 50px; background: #2c4a3b; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; border: 4px solid white; }
-.bnav-center-label { font-size: 0.65rem; font-weight: 700; color: #6c757d; margin-top: 22px; }
+.bnav-center-wrapper { position: relative; width: 20%; display: flex; justify-content: center; }
+.bnav-center-btn { 
+    position: absolute; 
+    top: -20px; 
+    width: 55px; height: 55px; 
+    background: var(--dark-green); 
+    border-radius: 18px; 
+    display: flex; align-items: center; justify-content: center; 
+    color: white; 
+    border: 5px solid white;
+}
 
 .avatar { width: 32px; height: 32px; }
 
-@media print { .no-print, .sidebar, .bottom-nav { display: none !important; } }
+@media (max-width: 768px) {
+    .sidebar { display: none !important; }
+}
+
+@media print { .no-print, .sidebar, .bottom-nav, .navbar { display: none !important; } }
 </style>
