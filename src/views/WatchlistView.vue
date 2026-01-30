@@ -10,7 +10,7 @@ let pollingInterval = null
 // --- STATE AUDIO & LOGIK NOTIFIKASI ---
 const isAudioEnabled = ref(true)
 const knownKitchenIds = ref(new Set()) // Menyimpan ID yang sudah pernah dilihat
-const audioPath = "/sounds/bell.mp3" 
+const audioPath = "/sounds/bell2.mp3" 
 const notificationSound = new Audio(audioPath)
 
 // --- FETCH DATA ---
