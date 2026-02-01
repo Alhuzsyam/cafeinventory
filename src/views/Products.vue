@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import axios from 'axios'
 
 // --- STATE UTAMA ---
@@ -9,8 +9,13 @@ const categories = ref([])
 const API_URL = "https://api.inventorycafe.space"
 const isSubmitting = ref(false)
 
-// State Filter Tampilan
+// --- STATE FILTER & SEARCH ---
 const selectedDivision = ref('ALL')
+const searchQuery = ref("")
+
+// --- STATE PAGINATION ---
+const currentPage = ref(1)
+const itemsPerPage = ref(10) // Default items per page
 
 // --- STATE FORM TAMBAH ---
 const aliasInput = ref("")
@@ -28,24 +33,62 @@ const editForm = ref({
   min_stock_level: 0, max_stock_level: 0, division: "", aliases: []
 })
 
-// --- COMPUTED: LOGIKA FILTER ---
+// --- COMPUTED: FILTERING ---
 const filteredProducts = computed(() => {
-    if (selectedDivision.value === 'ALL') {
-        return products.value
+    let result = products.value
+
+    // 1. Filter by Division
+    if (selectedDivision.value !== 'ALL') {
+        result = result.filter(p => p.division === selectedDivision.value)
     }
-    return products.value.filter(p => p.division === selectedDivision.value)
+
+    // 2. Filter by Search Query (Nama atau SKU)
+    if (searchQuery.value) {
+        const query = searchQuery.value.toLowerCase()
+        result = result.filter(p => 
+            p.name.toLowerCase().includes(query) || 
+            p.sku.toLowerCase().includes(query)
+        )
+    }
+
+    return result
+})
+
+// --- COMPUTED: PAGINATION ---
+const totalPages = computed(() => {
+    return Math.ceil(filteredProducts.value.length / itemsPerPage.value)
+})
+
+const paginatedProducts = computed(() => {
+    const start = (currentPage.value - 1) * itemsPerPage.value
+    const end = start + itemsPerPage.value
+    return filteredProducts.value.slice(start, end)
+})
+
+// --- WATCHERS ---
+// Reset ke halaman 1 jika filter atau search berubah
+watch([selectedDivision, searchQuery, itemsPerPage], () => {
+    currentPage.value = 1
 })
 
 // --- METHODS ---
 
 const fetchData = async () => {
     try {
-        const pRes = await axios.get(`${API_URL}/products/`)
+        // Mengambil semua data (limit besar) untuk client-side pagination
+        // Jika data sangat besar (ribuan), sebaiknya gunakan server-side pagination
+        const pRes = await axios.get(`${API_URL}/products/?limit=1000`)
         products.value = pRes.data
         const cRes = await axios.get(`${API_URL}/categories/`)
         categories.value = cRes.data
     } catch (e) {
         console.error("Gagal load data:", e)
+    }
+}
+
+const changePage = (page) => {
+    if (page >= 1 && page <= totalPages.value) {
+        currentPage.value = page
     }
 }
 
@@ -90,11 +133,8 @@ const submitProduct = async () => {
 
 // 2. PREPARE EDIT (Buka Modal)
 const openEditModal = (product) => {
-    // Deep clone data produk agar perubahan di modal tidak merusak tabel sebelum save
     editForm.value = JSON.parse(JSON.stringify(product))
-    // Pastikan aliases adalah array (jaga-jaga jika null dari backend)
     if (!editForm.value.aliases) editForm.value.aliases = []
-    
     showModal.value = true
 }
 
@@ -105,8 +145,8 @@ const updateProduct = async () => {
     isSubmitting.value = true
     try {
         await axios.put(`${API_URL}/products/${editForm.value.id}`, editForm.value)
-        await fetchData() // Refresh data tabel
-        showModal.value = false // Tutup modal
+        await fetchData() 
+        showModal.value = false 
         alert("Data berhasil diperbarui!")
     } catch (e) {
         alert("Gagal update: " + e.message)
@@ -120,7 +160,6 @@ const deleteProduct = async (id, name) => {
     if (confirm(`Yakin ingin menghapus permanent produk "${name}"?`)) {
         try {
             await axios.delete(`${API_URL}/products/${id}`)
-            // Update UI langsung (filter lokal) agar terasa cepat
             products.value = products.value.filter(p => p.id !== id)
         } catch (e) {
             alert("Gagal menghapus: " + e.message)
@@ -222,13 +261,13 @@ onMounted(fetchData)
         </div>
 
         <div class="col-lg-8">
-            <div class="card-modern">
+            <div class="card-modern d-flex flex-column h-100">
                 
                 <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 gap-3">
                     <div>
                         <h5 class="fw-bold text-dark-green m-0">Daftar Stok Bahan</h5>
-                        <small class="text-muted" v-if="selectedDivision === 'ALL'">Menampilkan semua item</small>
-                        <small class="text-muted" v-else>Menampilkan item divisi <strong>{{ selectedDivision }}</strong></small>
+                        <small class="text-muted" v-if="selectedDivision === 'ALL'">Semua Divisi</small>
+                        <small class="text-muted" v-else>Divisi: <strong>{{ selectedDivision }}</strong></small>
                     </div>
 
                     <div class="filter-container p-1 rounded-pill d-inline-flex">
@@ -238,70 +277,129 @@ onMounted(fetchData)
                     </div>
                 </div>
 
-                <div class="mb-3 text-end">
-                    <span class="badge bg-sage-light text-dark-green rounded-pill px-3">
-                        Total: {{ filteredProducts.length }} Item
-                    </span>
+                <div class="row g-2 mb-3 align-items-center">
+                    <div class="col-md-6 col-sm-12">
+                         <div class="search-wrapper w-100">
+                            <input 
+                                type="text" 
+                                v-model="searchQuery" 
+                                class="form-control-soft" 
+                                placeholder="🔍 Cari nama / SKU..."
+                            >
+                        </div>
+                    </div>
+                    <div class="col-md-6 col-sm-12 text-md-end text-sm-start">
+                        <label class="small text-muted me-2">Tampilkan:</label>
+                        <select v-model="itemsPerPage" class="form-select-sm border-0 bg-light rounded px-2 py-1" style="cursor: pointer;">
+                            <option :value="5">5</option>
+                            <option :value="10">10</option>
+                            <option :value="25">25</option>
+                            <option :value="50">50</option>
+                        </select>
+                        <span class="small text-muted ms-1">baris</span>
+                    </div>
                 </div>
 
-                <div class="table-responsive">
-                    <table class="table table-hover align-middle">
-                        <thead class="bg-light">
+                <div class="table-responsive flex-grow-1">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="bg-light sticky-top" style="z-index: 0;">
                             <tr>
-                                <th class="ps-3 border-0 rounded-start">Info Produk</th>
-                                <th class="border-0">Divisi & Kategori</th>
-                                <th class="border-0">Stok (Aktual/Max)</th>
-                                <th class="border-0 text-center">Status</th>
-                                <th class="pe-3 border-0 rounded-end text-end">Aksi</th>
+                                <th class="ps-3 border-0 rounded-start text-uppercase small text-muted font-weight-bold" width="35%">Produk</th>
+                                <th class="border-0 text-uppercase small text-muted font-weight-bold" width="20%">Kategori</th>
+                                <th class="border-0 text-uppercase small text-muted font-weight-bold" width="20%">Stok</th>
+                                <th class="border-0 text-center text-uppercase small text-muted font-weight-bold" width="10%">Status</th>
+                                <th class="pe-3 border-0 rounded-end text-end text-uppercase small text-muted font-weight-bold" width="15%">Aksi</th>
                             </tr>
                         </thead>
                         <tbody>
                             <tr v-if="filteredProducts.length === 0">
                                 <td colspan="5" class="text-center py-5 text-muted">
-                                    Tidak ada data di divisi <strong>{{ selectedDivision === 'ALL' ? 'manapun' : selectedDivision }}</strong>.
+                                    <div class="mb-2" style="font-size: 2rem;">📭</div>
+                                    Tidak ada data ditemukan.
                                 </td>
                             </tr>
 
-                            <tr v-for="p in filteredProducts" :key="p.id">
+                            <tr v-for="p in paginatedProducts" :key="p.id">
                                 <td class="ps-3">
                                     <div class="d-flex align-items-center gap-3">
-                                        <img :src="getProductImage(p.name)" class="rounded-3" width="40" height="40" alt="img">
+                                        <img :src="getProductImage(p.name)" class="rounded-3 shadow-sm" width="40" height="40" alt="img" loading="lazy">
                                         <div style="line-height: 1.2;">
-                                            <div class="fw-bold text-dark">{{ p.name }}</div>
+                                            <div class="fw-bold text-dark text-truncate" style="max-width: 150px;" :title="p.name">{{ p.name }}</div>
                                             <small class="text-muted font-monospace" style="font-size: 0.75rem;">{{ p.sku }}</small>
                                         </div>
                                     </div>
                                 </td>
                                 <td>
                                     <div class="d-flex flex-column gap-1">
-                                        <span class="badge w-fit border fw-normal" 
+                                        <span class="badge w-fit border fw-normal py-1 px-2" 
                                             :class="p.division === 'Bar' ? 'bg-brown text-white' : (p.division === 'Kitchen' ? 'bg-info text-white' : 'bg-secondary text-white')">
                                             {{ p.division || '-' }}
                                         </span>
-                                        <small class="text-muted">
+                                        <small class="text-muted text-truncate" style="max-width: 120px;">
                                             {{ categories.find(c => c.id === p.category_id)?.name || 'Uncategorized' }}
                                         </small>
                                     </div>
                                 </td>
                                 <td>
-                                    <div class="fw-bold text-dark-green">
-                                        {{ p.current_stock }} <span class="text-muted fw-normal mx-1">/</span> <span class="text-muted fw-normal small">{{ p.max_stock_level }}</span>
+                                    <div class="d-flex align-items-baseline">
+                                        <span class="fw-bold fs-6" :class="p.current_stock <= p.min_stock_level ? 'text-danger' : 'text-dark-green'">
+                                            {{ p.current_stock }}
+                                        </span>
+                                        <span class="text-muted mx-1 small">/</span> 
+                                        <span class="text-muted small">{{ p.max_stock_level }}</span>
+                                        <span class="text-muted ms-1 small">{{ p.unit }}</span>
                                     </div>
-                                    <small class="text-muted">{{ p.unit }}</small>
+                                    <div class="progress mt-1" style="height: 4px; width: 80px;">
+                                        <div class="progress-bar" role="progressbar" 
+                                            :class="p.current_stock <= p.min_stock_level ? 'bg-danger' : 'bg-success'"
+                                            :style="{ width: Math.min((p.current_stock / p.max_stock_level) * 100, 100) + '%' }">
+                                        </div>
+                                    </div>
                                 </td>
                                 <td class="text-center">
-                                    <span v-if="p.current_stock === 0" class="badge bg-secondary text-white rounded-pill">Habis</span>
-                                    <span v-else-if="p.current_stock <= p.min_stock_level" class="badge bg-soft-pink text-danger rounded-pill">Low</span>
-                                    <span v-else class="badge bg-sage-light text-dark-green rounded-pill">Aman</span>
+                                    <span v-if="p.current_stock === 0" class="badge bg-secondary text-white rounded-pill px-2">Habis</span>
+                                    <span v-else-if="p.current_stock <= p.min_stock_level" class="badge bg-soft-pink text-danger rounded-pill px-2">Low</span>
+                                    <span v-else class="badge bg-sage-light text-dark-green rounded-pill px-2">Aman</span>
                                 </td>
                                 <td class="pe-3 text-end">
-                                    <button class="btn-icon me-2" @click="openEditModal(p)" title="Edit">✏️</button>
-                                    <button class="btn-icon text-danger" @click="deleteProduct(p.id, p.name)" title="Hapus">🗑️</button>
+                                    <div class="btn-group">
+                                        <button class="btn btn-sm btn-light text-primary" @click="openEditModal(p)" title="Edit">
+                                            ✏️
+                                        </button>
+                                        <button class="btn btn-sm btn-light text-danger" @click="deleteProduct(p.id, p.name)" title="Hapus">
+                                            🗑️
+                                        </button>
+                                    </div>
                                 </td>
                             </tr>
                         </tbody>
                     </table>
                 </div>
+
+                <div class="d-flex justify-content-between align-items-center mt-3 pt-3 border-top">
+                    <small class="text-muted">
+                        Menampilkan {{ (currentPage - 1) * itemsPerPage + 1 }} - {{ Math.min(currentPage * itemsPerPage, filteredProducts.length) }} dari {{ filteredProducts.length }} data
+                    </small>
+                    
+                    <nav aria-label="Page navigation">
+                        <ul class="pagination pagination-sm mb-0">
+                            <li class="page-item" :class="{ disabled: currentPage === 1 }">
+                                <button class="page-link border-0 rounded-start" @click="changePage(currentPage - 1)">Previous</button>
+                            </li>
+                            
+                            <li class="page-item disabled">
+                                <span class="page-link border-0 bg-light text-dark fw-bold px-3">
+                                    Page {{ currentPage }} / {{ totalPages || 1 }}
+                                </span>
+                            </li>
+
+                            <li class="page-item" :class="{ disabled: currentPage === totalPages || totalPages === 0 }">
+                                <button class="page-link border-0 rounded-end" @click="changePage(currentPage + 1)">Next</button>
+                            </li>
+                        </ul>
+                    </nav>
+                </div>
+
             </div>
         </div>
     </div>
@@ -513,17 +611,15 @@ label {
     color: red;
 }
 
-/* --- TABLE --- */
-.table thead th {
-    font-size: 0.8rem;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: #888;
-    padding: 12px;
+/* --- PAGINATION --- */
+.page-link {
+    color: #2c4a3b;
+    cursor: pointer;
 }
-.table td {
-    padding: 12px;
-    vertical-align: middle;
+.page-item.disabled .page-link {
+    color: #aaa;
+    pointer-events: none;
+    background-color: #f8f9fa;
 }
 
 /* --- MODAL STYLE --- */
