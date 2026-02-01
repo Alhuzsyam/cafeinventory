@@ -1,50 +1,41 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import axios from 'axios'
 
 // --- KONFIGURASI API ---
 const API_URL = "https://api.inventorycafe.space"
-// const API_URL = "http://127.0.0.1:8000"
 
 // --- STATE UTAMA ---
-const activeTab = ref('categories') 
+const activeTab = ref('menu') 
 const isSubmitting = ref(false)
 const categories = ref([])
 const products = ref([]) 
 const menus = ref([])    
+const searchQuery = ref("") 
 
-// --- STATE EDIT & MODAL ---
-const editMode = ref({ type: null, id: null })
+// --- STATE MODAL CUSTOM ---
 const modal = ref({
     show: false,
     title: "",
     message: "",
-    type: "alert", // 'alert' atau 'confirm'
+    type: "confirm", // 'confirm' atau 'alert'
     onConfirm: null
 })
 
 // --- FORMS ---
 const catForm = ref({ name: "", description: "" })
 const menuForm = ref({ 
-    name: "", 
-    price: "", 
-    description: "",
-    division: "Bar", 
+    name: "", price: "", description: "", division: "Bar", 
     recipes: [] 
 })
+const editMode = ref({ type: null, id: null })
 
-// --- MODAL HELPER ---
-const showAlert = (title, msg) => {
-    modal.value = { show: true, title, message: msg, type: 'alert', onConfirm: null }
+// --- MODAL METHODS ---
+const openModal = (title, message, type, action = null) => {
+    modal.value = { show: true, title, message, type, onConfirm: action }
 }
-
-const showConfirm = (title, msg, callback) => {
-    modal.value = { show: true, title, message: msg, type: 'confirm', onConfirm: callback }
-}
-
 const closeModal = () => { modal.value.show = false }
-
-const confirmAction = () => {
+const handleConfirm = () => {
     if (modal.value.onConfirm) modal.value.onConfirm()
     closeModal()
 }
@@ -52,86 +43,112 @@ const confirmAction = () => {
 // --- FETCH DATA ---
 const fetchData = async () => {
     try {
-        const [cRes, pRes] = await Promise.all([
-            axios.get(`${API_URL}/categories/`),
-            axios.get(`${API_URL}/products/`)
+        const [cRes, pRes, mRes] = await Promise.all([
+            axios.get(`${API_URL}/categories/`).catch(() => ({ data: [] })),
+            axios.get(`${API_URL}/products/`).catch(() => ({ data: [] })),
+            axios.get(`${API_URL}/menu/`).catch(() => ({ data: [] }))
         ])
-        categories.value = cRes.data
-        products.value = pRes.data
-        const mRes = await axios.get(`${API_URL}/menu/`) 
-        menus.value = mRes.data
-    } catch (e) {
-        console.error("Gagal load data:", e)
-    }
+        categories.value = cRes.data;
+        products.value = pRes.data;
+        menus.value = mRes.data;
+    } catch (e) { console.error("Gagal load data:", e) }
 }
 
-const cancelEdit = () => {
-    editMode.value = { type: null, id: null }
-    catForm.value = { name: "", description: "" }
-    menuForm.value = { name: "", price: "", description: "", division: "Bar", recipes: [] }
-}
+// --- FILTERED DATA (LOCAL SEARCH) ---
+const filteredMenus = computed(() => {
+    if (!searchQuery.value) return menus.value
+    return menus.value.filter(m => m.name.toLowerCase().includes(searchQuery.value.toLowerCase()))
+})
 
 // --- LOGIC KATEGORI ---
 const editCategory = (c) => {
-    editMode.value = { type: 'cat', id: c.id }
-    catForm.value = { name: c.name, description: c.description }
-    window.scrollTo({ top: 0, behavior: 'smooth' })
-}
+    editMode.value = { type: 'cat', id: c.id };
+    catForm.value = { name: c.name, description: c.description || "" };
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+};
 
-const deleteCategory = (id) => {
-    showConfirm("Hapus Kategori?", "Data kategori ini akan hilang permanen.", async () => {
-        try {
-            await axios.delete(`${API_URL}/categories/${id}`)
-            fetchData()
-            showAlert("Berhasil", "Kategori telah dihapus.")
-        } catch(e) { showAlert("Gagal", "Kategori sedang digunakan oleh produk lain.") }
-    })
-}
+const cancelEdit = () => {
+    editMode.value = { type: null, id: null };
+    catForm.value = { name: "", description: "" };
+    menuForm.value = { name: "", price: "", description: "", division: "Bar", recipes: [] };
+};
 
 const submitCategory = async () => {
-    if(!catForm.value.name) return showAlert("Peringatan", "Nama kategori wajib diisi!")
+    if(!catForm.value.name) return openModal("Peringatan", "Nama kategori wajib diisi!", "alert")
     isSubmitting.value = true
     try {
         if(editMode.value.type === 'cat') {
             await axios.put(`${API_URL}/categories/${editMode.value.id}`, catForm.value)
-            showAlert("Berhasil", "Kategori berhasil diperbarui.")
+            openModal("Berhasil", "Kategori berhasil diperbarui.", "alert")
         } else {
             await axios.post(`${API_URL}/categories/`, catForm.value)
-            showAlert("Berhasil", "Kategori baru telah ditambahkan.")
+            openModal("Berhasil", "Kategori baru telah ditambahkan.", "alert")
         }
-        await fetchData(); cancelEdit()
-    } catch(e) { showAlert("Error", e.message) } 
-    finally { isSubmitting.value = false }
+        await fetchData(); 
+        cancelEdit();
+    } catch(e) { 
+        openModal("Error", "Gagal memproses kategori.", "alert") 
+    } finally { 
+        isSubmitting.value = false 
+    }
+}
+
+const triggerDeleteCategory = (id) => {
+    openModal("Hapus Kategori?", "Seluruh data kategori ini akan hilang permanen.", "confirm", async () => {
+        try {
+            await axios.delete(`${API_URL}/categories/${id}`)
+            fetchData();
+            if(editMode.value.id === id) cancelEdit();
+        } catch(e) { 
+            openModal("Gagal", "Kategori tidak bisa dihapus karena masih digunakan produk lain.", "alert") 
+        }
+    })
 }
 
 // --- LOGIC MENU & RESEP ---
+const addIngredient = () => {
+    menuForm.value.recipes.push({ product_id: "", amount_needed: "", searchQuery: "", unit: "", isOpen: false })
+}
+const removeIngredient = (index) => { menuForm.value.recipes.splice(index, 1) }
+
+const selectIngredient = (index, product) => {
+    const row = menuForm.value.recipes[index]
+    row.product_id = product.id
+    row.searchQuery = product.name
+    row.unit = product.unit
+    row.isOpen = false
+}
+
 const editMenu = (m) => {
+    activeTab.value = 'menu';
     editMode.value = { type: 'menu', id: m.id }
     menuForm.value = { 
         name: m.name, 
         price: m.price, 
         description: m.description, 
         division: m.division || 'Bar',
-        recipes: m.recipes.map(r => ({ product_id: r.product_id, amount_needed: r.amount_needed }))
+        recipes: m.recipes.map(r => ({ 
+            product_id: r.product_id, 
+            amount_needed: r.amount_needed, 
+            searchQuery: r.product?.name || '', 
+            unit: r.product?.unit || '', 
+            isOpen: false 
+        }))
     }
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+    window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-const deleteMenu = (id) => {
-    showConfirm("Hapus Menu?", "Menu ini tidak akan muncul lagi di Kasir.", async () => {
+const triggerDeleteMenu = (id) => {
+    openModal("Hapus Menu?", "Menu ini tidak akan muncul lagi di kasir.", "confirm", async () => {
         try {
             await axios.delete(`${API_URL}/menu/${id}`)
             fetchData()
-            showAlert("Berhasil", "Menu telah dihapus.")
-        } catch(e) { showAlert("Gagal", "Gagal menghapus menu.") }
+        } catch(e) { openModal("Error", "Gagal menghapus menu.", "alert") }
     })
 }
 
-const addIngredient = () => { menuForm.value.recipes.push({ product_id: "", amount_needed: "" }) }
-const removeIngredient = (index) => { menuForm.value.recipes.splice(index, 1) }
-
 const submitMenu = async () => {
-    if(!menuForm.value.name || !menuForm.value.price) return showAlert("Peringatan", "Nama Menu dan Harga wajib diisi!")
+    if(!menuForm.value.name || !menuForm.value.price) return openModal("Peringatan", "Nama & Harga wajib diisi!", "alert")
     isSubmitting.value = true
     try {
         const payload = {
@@ -140,129 +157,163 @@ const submitMenu = async () => {
             recipes: menuForm.value.recipes.map(r => ({
                 product_id: r.product_id,
                 amount_needed: parseFloat(r.amount_needed)
-            }))
+            })).filter(r => r.product_id && r.amount_needed)
         }
         if(editMode.value.type === 'menu') {
             await axios.put(`${API_URL}/menu/${editMode.value.id}`, payload)
-            showAlert("Berhasil", "Menu & Resep berhasil diperbarui.")
         } else {
             await axios.post(`${API_URL}/menu/`, payload)
-            showAlert("Berhasil", "Menu baru berhasil dibuat.")
         }
-        await fetchData(); cancelEdit()
-    } catch(e) { showAlert("Gagal", e.response?.data?.detail || e.message) } 
+        await fetchData(); 
+        cancelEdit();
+        openModal("Berhasil", "Data menu berhasil disimpan.", "alert")
+    } catch(e) { openModal("Error", "Gagal menyimpan menu.", "alert") } 
     finally { isSubmitting.value = false }
+}
+
+const getFilteredProducts = (query) => {
+    if (!query) return products.value.slice(0, 10)
+    return products.value.filter(p => p.name.toLowerCase().includes(query.toLowerCase())).slice(0, 10)
 }
 
 onMounted(fetchData)
 </script>
 
 <template>
-  <div class="page-container p-4">
-    
-    <div class="mb-4">
-      <h2 class="fw-bold text-dark-green m-0">⚙️ Pengaturan</h2>
-      <p class="text-muted m-0">Kelola kategori, menu kasir, dan resep produksi</p>
-    </div>
-    
-    <div class="nav-tabs-wrapper mb-4">
-        <button class="tab-btn" :class="{ active: activeTab === 'categories' }" @click="activeTab = 'categories'; cancelEdit()">🏷️ Kategori</button>
-        <button class="tab-btn" :class="{ active: activeTab === 'menu' }" @click="activeTab = 'menu'; cancelEdit()">☕ Menu & Resep</button>
-    </div>
+  <div class="app-container p-4">
+    <header class="mb-5 d-flex flex-column flex-md-row justify-content-between align-items-md-end gap-3">
+      <div>
+        <h1 class="fw-800 text-dark-green m-0">Pengaturan & Menu</h1>
+        <p class="text-muted m-0">Master data kategori dan manajemen resep cafe.</p>
+      </div>
+      <div class="tab-navigator p-1 shadow-sm">
+        <button :class="['tab-link', { active: activeTab === 'categories' }]" @click="activeTab = 'categories'; cancelEdit()">🏷️ Kategori</button>
+        <button :class="['tab-link', { active: activeTab === 'menu' }]" @click="activeTab = 'menu'; cancelEdit()">☕ Menu</button>
+      </div>
+    </header>
 
-    <div v-if="activeTab === 'categories'" class="row g-4 fade-in">
+    <main v-if="activeTab === 'categories'" class="row g-4 fade-in">
         <div class="col-lg-4">
-            <div class="card-modern sticky-top" style="top: 20px;">
-                <h5 class="fw-bold text-dark-green mb-4">{{ editMode.type === 'cat' ? '📝 Edit Kategori' : '✨ Tambah Kategori' }}</h5>
-                <div class="form-group mb-3">
+            <div class="glass-card sticky-top" style="top: 20px;">
+                <h4 class="fw-bold text-dark-green mb-4">{{ editMode.type === 'cat' ? '📝 Edit Kategori' : '✨ Tambah Kategori' }}</h4>
+                <div class="form-floating mb-3">
+                    <input v-model="catForm.name" class="form-control premium-input" placeholder="Nama">
                     <label>Nama Kategori</label>
-                    <input v-model="catForm.name" class="form-control-soft" placeholder="Contoh: Minuman Dingin">
                 </div>
-                <div class="form-group mb-4">
+                <div class="form-floating mb-4">
+                    <textarea v-model="catForm.description" class="form-control premium-input" style="height: 100px" placeholder="Desc"></textarea>
                     <label>Deskripsi (Opsional)</label>
-                    <textarea v-model="catForm.description" class="form-control-soft" rows="3"></textarea>
                 </div>
-                <div class="d-flex gap-2">
-                    <button class="btn-submit w-100" @click="submitCategory" :disabled="isSubmitting">{{ editMode.type === 'cat' ? 'Update' : 'Simpan' }}</button>
-                    <button v-if="editMode.type === 'cat'" class="btn btn-light rounded-3 px-3" @click="cancelEdit">Batal</button>
+                <div class="d-grid gap-2">
+                    <button class="btn btn-premium-green py-3" @click="submitCategory" :disabled="isSubmitting">
+                        {{ editMode.type === 'cat' ? 'Update Kategori' : 'Simpan Kategori' }}
+                    </button>
+                    <button v-if="editMode.type === 'cat'" class="btn btn-light border-0" @click="cancelEdit">Batal</button>
                 </div>
             </div>
         </div>
         <div class="col-lg-8">
-            <div class="card-modern">
-                <div class="category-list">
-                    <div v-for="c in categories" :key="c.id" class="category-item d-flex align-items-center">
-                        <div class="icon-box">🏷️</div>
-                        <div class="ms-3 flex-grow-1">
-                            <h6 class="fw-bold text-dark mb-1">{{ c.name }}</h6>
-                            <p class="text-muted small mb-0">{{ c.description || '-' }}</p>
-                        </div>
-                        <div class="d-flex gap-1">
-                            <button class="btn btn-action edit" @click="editCategory(c)"><i class="fa-solid fa-pen"></i></button>
-                            <button class="btn btn-action delete" @click="deleteCategory(c.id)"><i class="fa-solid fa-trash"></i></button>
-                        </div>
+            <div class="list-container">
+                <div v-for="c in categories" :key="c.id" class="item-card d-flex align-items-center mb-3">
+                    <div class="icon-avatar shadow-sm">🏷️</div>
+                    <div class="ms-3 flex-grow-1">
+                        <h6 class="fw-700 m-0">{{ c.name }}</h6>
+                        <p class="text-muted small m-0">{{ c.description || 'Tidak ada deskripsi' }}</p>
+                    </div>
+                    <div class="action-buttons d-flex gap-2">
+                        <button class="btn-circle edit" @click="editCategory(c)"><i class="fa-solid fa-pen"></i></button>
+                        <button class="btn-circle delete" @click="triggerDeleteCategory(c.id)"><i class="fa-solid fa-trash"></i></button>
                     </div>
                 </div>
             </div>
         </div>
-    </div>
+    </main>
 
-    <div v-if="activeTab === 'menu'" class="row g-4 fade-in">
+    <main v-if="activeTab === 'menu'" class="row g-4 fade-in">
         <div class="col-lg-5">
-            <div class="card-modern sticky-top" style="top: 20px;">
-                <h5 class="fw-bold text-dark-green mb-4">{{ editMode.type === 'menu' ? '📝 Edit Menu' : '✨ Buat Menu Baru' }}</h5>
-                <div class="form-group mb-3"><label>Nama Menu</label><input v-model="menuForm.name" class="form-control-soft"></div>
-                <div class="form-group mb-3"><label>Divisi</label>
-                    <select v-model="menuForm.division" class="form-control-soft"><option value="Bar">🍷 Bar</option><option value="Kitchen">🍳 Kitchen</option></select>
+            <div class="glass-card sticky-top" style="top: 20px;">
+                <h4 class="fw-bold text-dark-green mb-4">{{ editMode.type === 'menu' ? '📝 Edit Resep' : '✨ Menu & Resep Baru' }}</h4>
+                <div class="form-floating mb-3">
+                    <input v-model="menuForm.name" class="form-control premium-input" placeholder="Nama">
+                    <label>Nama Menu Jualan</label>
                 </div>
                 <div class="row g-2 mb-3">
-                    <div class="col-6"><label>Harga (Rp)</label><input type="number" v-model="menuForm.price" class="form-control-soft"></div>
-                    <div class="col-6"><label>Keterangan</label><input v-model="menuForm.description" class="form-control-soft"></div>
+                    <div class="col-7"><div class="form-floating"><input type="number" v-model="menuForm.price" class="form-control premium-input" placeholder="Hrg"><label>Harga (Rp)</label></div></div>
+                    <div class="col-5">
+                        <div class="form-floating">
+                            <select v-model="menuForm.division" class="form-select premium-input">
+                                <option value="Bar">🍷 Bar</option>
+                                <option value="Kitchen">🍳 Kitchen</option>
+                            </select>
+                            <label>Divisi</label>
+                        </div>
+                    </div>
                 </div>
-                <hr class="border-dashed my-4">
-                <div class="d-flex justify-content-between align-items-center mb-2"><label>Resep</label><button class="btn btn-sm btn-outline-success rounded-pill px-3" @click="addIngredient">+ Bahan</button></div>
-                <div v-for="(recipe, index) in menuForm.recipes" :key="index" class="d-flex gap-2 mb-2 animate-slide">
-                    <select v-model="recipe.product_id" class="form-control-soft" style="flex: 2;"><option v-for="p in products" :key="p.id" :value="p.id">{{ p.name }}</option></select>
-                    <input type="number" v-model="recipe.amount_needed" class="form-control-soft" style="flex: 1;" placeholder="Jml">
-                    <button class="btn-remove-sm" @click="removeIngredient(index)">×</button>
+                <div class="d-flex justify-content-between align-items-center mt-4 mb-3">
+                    <label class="fw-bold text-muted small">RESEP / KOMPOSISI</label>
+                    <button class="btn btn-sm btn-soft-green rounded-pill" @click="addIngredient">+ Bahan</button>
                 </div>
-                <div class="d-flex gap-2 mt-3">
-                    <button class="btn-submit w-100" @click="submitMenu" :disabled="isSubmitting">{{ editMode.type === 'menu' ? 'Update Menu' : 'Simpan Menu' }}</button>
-                    <button v-if="editMode.type === 'menu'" class="btn btn-light rounded-3 px-3" @click="cancelEdit">Batal</button>
+                <div v-for="(recipe, index) in menuForm.recipes" :key="index" class="d-flex gap-2 mb-2 animate-pop">
+                    <div class="position-relative flex-grow-1">
+                        <input type="text" v-model="recipe.searchQuery" class="form-control premium-input-sm" placeholder="Cari..." @focus="recipe.isOpen = true" @blur="setTimeout(() => recipe.isOpen=false, 200)">
+                        <div v-if="recipe.isOpen" class="dropdown-overlay shadow-lg border">
+                            <div v-for="p in getFilteredProducts(recipe.searchQuery)" :key="p.id" class="dropdown-item-p" @mousedown="selectIngredient(index, p)">
+                                {{ p.name }} <small class="text-muted">({{ p.unit }})</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="input-group" style="width: 120px;">
+                        <input type="number" v-model="recipe.amount_needed" class="form-control premium-input-sm border-end-0" placeholder="Qty">
+                        <span class="input-group-text unit-tag">{{ recipe.unit || '-' }}</span>
+                    </div>
+                    <button class="btn btn-soft-danger" @click="removeIngredient(index)"><i class="fa-solid fa-times"></i></button>
+                </div>
+                <div class="d-grid gap-2 mt-4">
+                    <button class="btn btn-premium-green py-3 fw-bold" @click="submitMenu" :disabled="isSubmitting">Simpan Menu</button>
+                    <button v-if="editMode.type === 'menu'" class="btn btn-outline-secondary border-0" @click="cancelEdit">Batal</button>
                 </div>
             </div>
         </div>
+
         <div class="col-lg-7">
-            <div class="card-modern">
-                <div v-for="m in menus" :key="m.id" class="category-item d-flex align-items-start">
-                    <div class="icon-box bg-brown text-white">☕</div>
-                    <div class="ms-3 flex-grow-1">
-                        <div class="d-flex justify-content-between">
-                            <h6 class="fw-bold text-dark mb-0">{{ m.name }} <span class="badge ms-2" :class="m.division === 'Kitchen' ? 'bg-secondary' : 'bg-success'">{{ m.division || 'Bar' }}</span></h6>
+            <div class="search-bar mb-4 position-relative">
+                <i class="fa-solid fa-magnifying-glass search-icon"></i>
+                <input v-model="searchQuery" class="form-control search-input-field shadow-sm" placeholder="Cari menu...">
+            </div>
+            <div class="row g-3">
+                <div v-for="m in filteredMenus" :key="m.id" class="col-md-6">
+                    <div class="menu-item-card h-100 shadow-sm border p-4">
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <h6 class="fw-800 m-0 text-truncate" style="max-width: 150px">{{ m.name }}</h6>
                             <div class="d-flex gap-1">
-                                <button class="btn btn-action edit" @click="editMenu(m)"><i class="fa-solid fa-pen"></i></button>
-                                <button class="btn btn-action delete" @click="deleteMenu(m.id)"><i class="fa-solid fa-trash"></i></button>
+                                <button class="btn btn-action-sm edit" @click="editMenu(m)"><i class="fa-solid fa-pen"></i></button>
+                                <button class="btn btn-action-sm delete" @click="triggerDeleteMenu(m.id)"><i class="fa-solid fa-trash"></i></button>
                             </div>
                         </div>
-                        <div class="fw-bold text-dark-green small mb-2">Rp {{ m.price.toLocaleString() }}</div>
-                        <div class="d-flex flex-wrap gap-1"><span v-for="r in m.recipes" :key="r.id" class="badge-resep">{{ r.product?.name }} {{ r.amount_needed }}</span></div>
+                        <div class="text-premium-green fw-700 mb-3">Rp {{ m.price.toLocaleString() }}</div>
+                        <div class="d-flex flex-wrap gap-1">
+                            <span v-for="r in m.recipes" :key="r.id" class="recipe-tag">{{ r.product?.name }} <small>{{ r.amount_needed }}{{ r.product?.unit }}</small></span>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
-    </div>
+    </main>
 
-    <div v-if="modal.show" class="modal-overlay fade-in">
-        <div class="modal-card shadow-lg">
-            <div class="text-center mb-3">
-                <div v-if="modal.type === 'alert'" class="modal-icon bg-sage-light text-dark-green"><i class="fa-solid fa-circle-check"></i></div>
-                <div v-else class="modal-icon bg-light text-danger"><i class="fa-solid fa-circle-exclamation"></i></div>
+    <div v-if="modal.show" class="modal-overlay">
+        <div class="modal-content-card animate-pop">
+            <div class="text-center mb-4">
+                <div :class="['modal-icon-circle', modal.type === 'confirm' ? 'bg-soft-danger' : 'bg-soft-green']">
+                    <i :class="['fa-solid', modal.type === 'confirm' ? 'fa-triangle-exclamation text-danger' : 'fa-circle-check text-premium-green']"></i>
+                </div>
             </div>
-            <h5 class="fw-bold text-center text-dark-green mb-2">{{ modal.title }}</h5>
+            <h5 class="fw-800 text-center text-dark-green mb-2">{{ modal.title }}</h5>
             <p class="text-muted text-center small mb-4">{{ modal.message }}</p>
             <div class="d-flex gap-2">
-                <button v-if="modal.type === 'confirm'" class="btn btn-light w-100 rounded-pill fw-bold" @click="closeModal">Batal</button>
-                <button class="btn-submit w-100 rounded-pill" @click="modal.type === 'confirm' ? confirmAction() : closeModal()">{{ modal.type === 'confirm' ? 'Ya, Lanjutkan' : 'Oke' }}</button>
+                <button v-if="modal.type === 'confirm'" class="btn btn-light w-100 py-2 rounded-pill" @click="closeModal">Batal</button>
+                <button class="btn btn-premium-green w-100 py-2 rounded-pill shadow-sm" @click="modal.type === 'confirm' ? handleConfirm() : closeModal()">
+                    {{ modal.type === 'confirm' ? 'Ya, Lanjutkan' : 'Oke' }}
+                </button>
             </div>
         </div>
     </div>
@@ -270,40 +321,62 @@ onMounted(fetchData)
 </template>
 
 <style scoped>
-:root { --dark-green: #2c4a3b; --sage-light: #e6f0eb; --brown: #8a7044; }
-.text-dark-green { color: #2c4a3b; }
-.bg-sage-light { background-color: #e6f0eb; }
-.bg-brown { background-color: #8a7044; }
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap');
 
-/* TABS */
-.nav-tabs-wrapper { display: flex; background: #e9ecef; padding: 5px; border-radius: 15px; width: fit-content; }
-.tab-btn { border: none; padding: 10px 25px; border-radius: 12px; background: transparent; color: #666; font-weight: 600; cursor: pointer; }
-.tab-btn.active { background: white; color: #2c4a3b; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+:root {
+  --dark-green: #1a3a34;
+  --premium-green: #2d6a4f;
+  --soft-green: #d8f3dc;
+  --soft-danger: #ffebee;
+}
 
-/* CARDS & INPUTS */
-.card-modern { background: white; border-radius: 20px; padding: 25px; border: 1px solid #f0f0f0; }
-.form-control-soft { width: 100%; padding: 10px 15px; border: 1px solid #eee; border-radius: 10px; background: #fafafa; font-size: 0.95rem; }
-.form-control-soft:focus { border-color: #b8d0c3; outline: none; background: white; }
-label { font-size: 0.85rem; font-weight: 600; color: #555; margin-bottom: 6px; display: block; }
+.app-container { font-family: 'Plus Jakarta Sans', sans-serif; color: #2d3436; }
+.fw-800 { font-weight: 800; }
+.fw-700 { font-weight: 700; }
+.text-premium-green { color: var(--premium-green); }
 
-/* BUTTONS */
-.btn-submit { background: #2c4a3b; color: white; border: none; padding: 12px; border-radius: 10px; font-weight: 600; cursor: pointer; }
-.btn-action { width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 8px; border: none; background: #f8f9fa; transition: 0.2s; }
-.btn-action.edit:hover { background: #e6f0eb; color: #2c4a3b; }
-.btn-action.delete:hover { background: #ffe6e6; color: #dc3545; }
-.btn-remove-sm { width: 35px; height: 38px; border: none; background: #ffe6e6; color: red; border-radius: 8px; font-size: 1.2rem; }
+.tab-navigator { background: #f1f2f6; border-radius: 14px; display: inline-flex; }
+.tab-link { border: none; background: transparent; padding: 10px 20px; border-radius: 10px; font-weight: 700; font-size: 0.85rem; color: #636e72; transition: 0.3s; }
+.tab-link.active { background: white; color: var(--dark-green); box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
 
-/* LISTS */
-.category-item { padding: 15px; border: 1px solid #f9f9f9; border-radius: 15px; margin-bottom: 10px; }
-.icon-box { width: 45px; height: 45px; background: #e6f0eb; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; }
-.badge-resep { background: #198754; border: 1px solid #6aca87; padding: 3px 8px; border-radius: 6px; font-size: 0.75rem; color: #fff; }
+.glass-card { background: white; border-radius: 24px; padding: 28px; border: 1px solid #f1f2f6; box-shadow: 0 10px 30px rgba(0,0,0,0.02); }
+.item-card { background: white; padding: 16px 20px; border-radius: 18px; border: 1px solid #f1f2f6; transition: 0.2s; }
+.item-card:hover { transform: translateX(5px); border-color: var(--premium-green); }
+.menu-item-card { background: white; border-radius: 20px; transition: 0.3s; }
 
-/* MODAL SYSTEM */
-.modal-overlay { position: fixed; inset: 0; background: rgba(44, 74, 59, 0.2); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; z-index: 9999; padding: 20px; }
-.modal-card { background: white; width: 100%; max-width: 350px; padding: 30px; border-radius: 28px; animation: modalPop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
-.modal-icon { width: 60px; height: 60px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.8rem; margin: 0 auto; }
+.premium-input { border-radius: 14px; border: 1.5px solid #edf2f7; background: #f8fafc; font-size: 0.95rem; font-weight: 600; }
+.premium-input:focus { border-color: var(--premium-green); background: white; box-shadow: 0 0 0 4px rgba(45, 106, 79, 0.1); }
+.premium-input-sm { border-radius: 10px; border: 1.5px solid #edf2f7; background: #f8fafc; font-size: 0.85rem; padding: 8px 12px; }
 
-@keyframes modalPop { from { opacity: 0; transform: scale(0.8); } to { opacity: 1; transform: scale(1); } }
+.btn-premium-green { background: var(--dark-green); color: white; border-radius: 12px; font-weight: 700; transition: 0.2s; }
+.btn-premium-green:hover { background: var(--premium-green); transform: translateY(-2px); }
+.btn-soft-green { background: var(--soft-green); color: var(--premium-green); border: none; font-weight: 700; }
+.btn-soft-danger { background: var(--soft-danger); color: #d32f2f; border: none; border-radius: 8px; width: 32px; height: 32px; }
+.btn-circle { width: 36px; height: 36px; border-radius: 50%; border: none; background: #f8fafc; display: flex; align-items: center; justify-content: center; }
+.btn-circle.edit:hover { background: #e3f2fd; color: #1976d2; }
+.btn-circle.delete:hover { background: var(--soft-danger); color: #d32f2f; }
+.btn-action-sm { border: none; background: transparent; color: #b2bec3; font-size: 0.9rem; transition: 0.2s; }
+.btn-action-sm.edit:hover { color: #1976d2; }
+.btn-action-sm.delete:hover { color: #d32f2f; }
+
+.modal-overlay { position: fixed; inset: 0; background: rgba(26, 58, 52, 0.4); backdrop-filter: blur(6px); z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 20px; }
+.modal-content-card { background: white; width: 100%; max-width: 360px; padding: 32px; border-radius: 28px; box-shadow: 0 20px 50px rgba(0,0,0,0.1); }
+.modal-icon-circle { width: 64px; height: 64px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 1.8rem; margin: 0 auto; }
+.bg-soft-danger { background: #fff5f5; }
+.bg-soft-green { background: #f0fff4; }
+
+.icon-avatar { width: 44px; height: 44px; background: #f1f7f5; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; }
+.recipe-tag { background: #f1f2f6; padding: 4px 10px; border-radius: 8px; font-size: 0.7rem; font-weight: 700; color: #444; }
+.unit-tag { background: #f8fafc; border: 1.5px solid #edf2f7; border-left: none; font-size: 0.7rem; font-weight: 800; color: #adb5bd; }
+.dropdown-overlay { position: absolute; top: 105%; left: 0; width: 100%; background: white; border-radius: 12px; z-index: 100; max-height: 150px; overflow-y: auto; padding: 5px; }
+.dropdown-item-p { padding: 8px 12px; border-radius: 8px; cursor: pointer; font-size: 0.85rem; font-weight: 600; display: flex; justify-content: space-between; }
+.dropdown-item-p:hover { background: #f1f7f5; color: var(--premium-green); }
+
+.search-input-field { padding: 12px 15px 12px 45px; border-radius: 16px; border: 1.5px solid #edf2f7; width: 100%; }
+.search-icon { position: absolute; left: 18px; top: 50%; transform: translateY(-50%); color: #b2bec3; }
+
 .fade-in { animation: fadeIn 0.4s ease; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+.animate-pop { animation: pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
+@keyframes pop { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
 </style>
