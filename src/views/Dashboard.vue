@@ -4,11 +4,12 @@ import axios from 'axios'
 
 const products = ref([])
 const logs = ref([]) 
-const usageReport = ref([]) // Data baru untuk laporan akumulasi
+const usageReport = ref([]) 
 // const API_URL = "http://127.0.0.1:8000"
 const API_URL = "https://api.inventorycafe.space"
 const searchQuery = ref("")
-const activeTab = ref('logs') // State untuk tab: 'logs' atau 'usage'
+const activeTab = ref('logs') // Tab untuk Log/Activity
+const stockTab = ref('low')   // Tab BARU untuk filter Stok (default ke 'low' agar aware)
 
 // --- COMPUTED DATA ---
 
@@ -17,37 +18,39 @@ const currentDate = computed(() => {
   return date.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
 })
 
-// 1. Filter Pencarian
-const filteredProducts = computed(() => {
+// 1. Base Filter Pencarian (Semua produk yang cocok dengan search)
+const searchResults = computed(() => {
   if (!searchQuery.value) return products.value
   return products.value.filter(p => p.name.toLowerCase().includes(searchQuery.value.toLowerCase()))
 })
 
-// 2. Statistik Stok
-const lowStockItems = computed(() => products.value.filter(p => p.current_stock <= p.min_stock_level))
-
-// Item Ready Stock
+// 2. Statistik Global (Tetap menggunakan seluruh data products)
+const lowStockItemsGlobal = computed(() => products.value.filter(p => p.current_stock <= p.min_stock_level))
 const readyStockCount = computed(() => products.value.filter(p => p.current_stock > 0).length)
-
-// Persentase kesehatan stok
 const stockHealthPercentage = computed(() => {
   if (products.value.length === 0) return 0
   return Math.round((readyStockCount.value / products.value.length) * 100)
+})
+
+// 3. Filter Tab Stok (Berdasarkan hasil pencarian)
+const safeStockList = computed(() => searchResults.value.filter(p => p.current_stock > p.min_stock_level))
+const lowStockList = computed(() => searchResults.value.filter(p => p.current_stock <= p.min_stock_level))
+
+// 4. List yang ditampilkan di Grid
+const displayedProducts = computed(() => {
+  return stockTab.value === 'safe' ? safeStockList.value : lowStockList.value
 })
 
 // --- LOGIC ---
 
 const fetchData = async () => {
   try {
-    // 1. Ambil Produk
     const pRes = await axios.get(`${API_URL}/products/`)
     products.value = pRes.data
     
-    // 2. Ambil Log History
     const lRes = await axios.get(`${API_URL}/inventory/history?limit=10`)
     logs.value = lRes.data
 
-    // 3. Ambil Laporan Penggunaan (Endpoint Baru)
     const uRes = await axios.get(`${API_URL}/inventory/usage-report`)
     usageReport.value = uRes.data
 
@@ -85,7 +88,6 @@ onMounted(fetchData)
     </div>
 
     <div class="row g-4 mb-5">
-      
       <div class="col-md-4">
         <div class="stat-card bg-sage-light">
           <div class="d-flex justify-content-between align-items-start">
@@ -93,9 +95,7 @@ onMounted(fetchData)
               <span class="stat-label text-sage-dark">Total Item Terdaftar</span>
               <h3 class="stat-value text-dark-green">{{ products.length }}</h3>
             </div>
-            <div class="icon-circle bg-white text-sage-dark">
-              📝
-            </div>
+            <div class="icon-circle bg-white text-sage-dark">📝</div>
           </div>
           <p class="stat-note text-sage-dark">Database menu & bahan</p>
         </div>
@@ -111,9 +111,7 @@ onMounted(fetchData)
                 <small class="text-muted fw-bold">({{ readyStockCount }}/{{ products.length }} Item)</small>
               </div>
             </div>
-            <div class="icon-circle bg-white text-brown">
-              ✨
-            </div>
+            <div class="icon-circle bg-white text-brown">✨</div>
           </div>
           <div class="progress mt-3" style="height: 6px; background-color: rgba(138, 112, 68, 0.2);">
             <div class="progress-bar bg-brown" role="progressbar" 
@@ -126,32 +124,67 @@ onMounted(fetchData)
       </div>
 
       <div class="col-md-4">
-        <div class="stat-card" :class="lowStockItems.length > 0 ? 'bg-soft-pink' : 'bg-soft-gray'">
+        <div class="stat-card" :class="lowStockItemsGlobal.length > 0 ? 'bg-soft-pink' : 'bg-soft-gray'">
           <div class="d-flex justify-content-between align-items-start">
             <div>
-              <span class="stat-label" :class="lowStockItems.length > 0 ? 'text-danger' : 'text-muted'">Perlu Restock</span>
-              <h3 class="stat-value" :class="lowStockItems.length > 0 ? 'text-danger' : 'text-dark'">
-                {{ lowStockItems.length }} <span class="fs-6 fw-normal">Item</span>
+              <span class="stat-label" :class="lowStockItemsGlobal.length > 0 ? 'text-danger' : 'text-muted'">Perlu Restock</span>
+              <h3 class="stat-value" :class="lowStockItemsGlobal.length > 0 ? 'text-danger' : 'text-dark'">
+                {{ lowStockItemsGlobal.length }} <span class="fs-6 fw-normal">Item</span>
               </h3>
             </div>
-            <div class="icon-circle bg-white" :class="lowStockItems.length > 0 ? 'text-danger' : 'text-muted'">
-              {{ lowStockItems.length > 0 ? '⚠️' : '✅' }}
+            <div class="icon-circle bg-white" :class="lowStockItemsGlobal.length > 0 ? 'text-danger' : 'text-muted'">
+              {{ lowStockItemsGlobal.length > 0 ? '⚠️' : '✅' }}
             </div>
           </div>
-          <p class="stat-note" :class="lowStockItems.length > 0 ? 'text-danger' : 'text-muted'">
-            {{ lowStockItems.length > 0 ? 'Segera lakukan pembelian!' : 'Stok aman terkendali' }}
+          <p class="stat-note" :class="lowStockItemsGlobal.length > 0 ? 'text-danger' : 'text-muted'">
+            {{ lowStockItemsGlobal.length > 0 ? 'Segera lakukan pembelian!' : 'Stok aman terkendali' }}
           </p>
         </div>
       </div>
     </div>
 
-    <div class="d-flex justify-content-between align-items-center mb-3">
-      <h4 class="fw-bold text-dark-green m-0">Daftar Menu & Stok</h4>
-      <small class="text-muted">Menampilkan {{ filteredProducts.length }} produk</small>
+    <div class="d-flex flex-column flex-sm-row justify-content-between align-items-start align-items-sm-center mb-4 gap-3">
+      <div>
+        <h4 class="fw-bold text-dark-green m-0">Daftar Menu & Stok</h4>
+        <small class="text-muted">Mengelola stok inventory</small>
+      </div>
+
+      <div class="bg-light p-1 rounded-pill d-inline-flex shadow-sm">
+        <button 
+          @click="stockTab = 'low'"
+          class="btn btn-sm rounded-pill px-4 py-2 fw-bold transition-all d-flex align-items-center gap-2"
+          :class="stockTab === 'low' ? 'bg-white shadow-sm text-danger' : 'text-muted border-0'"
+        >
+          <span>⚠️ Menipis</span>
+          <span class="badge rounded-pill" :class="stockTab === 'low' ? 'bg-danger text-white' : 'bg-secondary text-white-50'">
+            {{ lowStockList.length }}
+          </span>
+        </button>
+
+        <button 
+          @click="stockTab = 'safe'"
+          class="btn btn-sm rounded-pill px-4 py-2 fw-bold transition-all d-flex align-items-center gap-2"
+          :class="stockTab === 'safe' ? 'bg-white shadow-sm text-dark-green' : 'text-muted border-0'"
+        >
+          <span>✅ Aman</span>
+          <span class="badge rounded-pill" :class="stockTab === 'safe' ? 'bg-success text-white' : 'bg-secondary text-white-50'">
+            {{ safeStockList.length }}
+          </span>
+        </button>
+      </div>
     </div>
 
     <div class="row g-4 mb-5">
-      <div class="col-6 col-md-4 col-lg-3" v-for="product in filteredProducts" :key="product.id">
+      <div v-if="displayedProducts.length === 0" class="col-12 text-center py-5">
+        <div class="mb-3" style="font-size: 3rem;">
+          {{ stockTab === 'low' ? '🎉' : '🔍' }}
+        </div>
+        <h5 class="text-muted">
+          {{ stockTab === 'low' ? 'Mantap! Tidak ada stok yang menipis.' : 'Tidak ada produk ditemukan.' }}
+        </h5>
+      </div>
+
+      <div class="col-6 col-md-4 col-lg-3" v-for="product in displayedProducts" :key="product.id">
         <div class="product-card h-100">
           <div class="stock-badge shadow-sm" :class="product.current_stock <= product.min_stock_level ? 'bg-danger text-white' : 'bg-white text-dark'">
             {{ product.current_stock }} <span class="text-muted small" :class="product.current_stock <= product.min_stock_level ? 'text-white-50' : ''">{{ product.unit }}</span>
@@ -180,7 +213,6 @@ onMounted(fetchData)
     </div>
 
     <div class="activity-section p-4 rounded-4 bg-white shadow-sm border-0">
-      
       <div class="d-flex flex-column flex-sm-row justify-content-between align-items-start align-items-sm-center mb-4 gap-3">
         <h5 class="fw-bold text-dark-green m-0">
           {{ activeTab === 'logs' ? '🕒 Aktivitas Terkini' : '📊 Laporan Penggunaan Bahan' }}
@@ -217,7 +249,6 @@ onMounted(fetchData)
       </div>
 
       <div class="table-responsive">
-        
         <table v-if="activeTab === 'logs'" class="table table-borderless align-middle mb-0">
           <thead class="text-muted border-bottom">
             <tr class="small text-uppercase">
@@ -261,29 +292,16 @@ onMounted(fetchData)
           </thead>
           <tbody>
             <tr v-for="item in usageReport" :key="item.product_id" class="border-bottom-dashed">
-              <td class="fw-bold text-dark py-3">
-                {{ item.product_name }}
-              </td>
-              <td class="text-center">
-                <span class="fw-bold text-dark-green" style="font-size: 1.1rem;">
-                  {{ item.weekly_usage }}
-                </span>
-              </td>
-              <td class="text-center">
-                <span class="fw-bold text-dark-green" style="font-size: 1.1rem;">
-                  {{ item.monthly_usage }}
-                </span>
-              </td>
-              <td class="text-end text-muted">
-                {{ item.unit }}
-              </td>
+              <td class="fw-bold text-dark py-3">{{ item.product_name }}</td>
+              <td class="text-center"><span class="fw-bold text-dark-green" style="font-size: 1.1rem;">{{ item.weekly_usage }}</span></td>
+              <td class="text-center"><span class="fw-bold text-dark-green" style="font-size: 1.1rem;">{{ item.monthly_usage }}</span></td>
+              <td class="text-end text-muted">{{ item.unit }}</td>
             </tr>
             <tr v-if="usageReport.length === 0">
               <td colspan="4" class="text-center text-muted py-4">Belum ada data penggunaan</td>
             </tr>
           </tbody>
         </table>
-
       </div>
     </div>
 
