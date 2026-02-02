@@ -151,20 +151,124 @@ const toggleSidebar = () => {
 </template>
 
 <style>
-:root { --dark-green: #2c4a3b; --sidebar-width: 250px; --sidebar-collapsed: 80px; }
-body { margin: 0; font-family: 'Plus Jakarta Sans', sans-serif; background: #f8f9fa; }
+:root { 
+  --dark-green: #2c4a3b; 
+  --sidebar-width: 260px; 
+  --sidebar-collapsed: 80px; 
+}
 
-/* Flex context untuk mencegah horizontal scroll global */
+body, html { 
+  margin: 0; 
+  padding: 0;
+  height: 100%; /* Penting agar vh bekerja maksimal */
+  overflow: hidden; /* Mencegah scroll double di level body */
+  font-family: 'Plus Jakarta Sans', sans-serif; 
+  background: #f8f9fa; 
+}
+
+/* Flex context utama */
 #app-layout { 
     display: flex; 
-    min-height: 100vh; 
+    height: 100vh; /* Kunci tinggi aplikasi seukuran layar */
     width: 100vw;
-    overflow-x: hidden;
+    overflow: hidden; /* Pastikan tidak ada scroll di kontainer paling luar */
     transition: all 0.3s; 
 }
-.login-mode { display: block !important; }
+
+.login-mode { display: block !important; overflow-y: auto !important; }
 </style>
 
+<style scoped>
+.text-dark-green { color: var(--dark-green); }
+.bg-dark-green { background-color: var(--dark-green); }
+
+/* --- SIDEBAR FIX --- */
+.sidebar {
+    /* Gunakan flex basis untuk mengunci lebar agar tidak menciut */
+    flex: 0 0 var(--sidebar-width);
+    width: var(--sidebar-width);
+    
+    /* Kunci tinggi agar sidebar tetap diam saat konten di kanan di-scroll */
+    height: 100vh;
+    background-color: white;
+    display: flex;
+    flex-direction: column;
+    
+    /* Tambahkan scroll internal JIKA menu sidebar sangat banyak */
+    overflow-y: auto;
+    overflow-x: hidden;
+    
+    border-right: 1px solid #edf2f7;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 1040;
+}
+
+.sidebar-collapsed .sidebar {
+    flex: 0 0 var(--sidebar-collapsed);
+    width: var(--sidebar-collapsed);
+}
+
+/* --- MAIN CONTENT FIX (Scroll Independen) --- */
+.main-content {
+    flex: 1;
+    height: 100vh; /* Kunci tinggi seukuran layar */
+    min-width: 0; /* Mencegah elemen lebar (seperti chart/tabel) mendorong sidebar keluar */
+    
+    /* AKTIFKAN SCROLL DI SINI */
+    overflow-y: auto; 
+    display: flex;
+    flex-direction: column;
+}
+
+.content-wrapper {
+    width: 100%;
+    /* Memberi ruang di bawah agar konten terakhir tidak tertutup bottom nav di mobile */
+    padding-bottom: 100px !important; 
+}
+
+/* --- Navigasi & Estetika --- */
+.nav-link {
+    display: flex;
+    align-items: center;
+    color: #6c757d;
+    padding: 12px 15px;
+    border-radius: 12px;
+    text-decoration: none;
+    font-size: 0.9rem;
+    white-space: nowrap; /* Mencegah teks turun baris saat sidebar mengecil */
+    transition: all 0.2s;
+}
+
+.nav-link.active {
+    background-color: #e6f0eb;
+    color: var(--dark-green);
+    font-weight: 700;
+}
+
+/* Custom Scrollbar agar area konten terlihat premium */
+.main-content::-webkit-scrollbar,
+.sidebar::-webkit-scrollbar {
+    width: 6px;
+}
+.main-content::-webkit-scrollbar-thumb,
+.sidebar::-webkit-scrollbar-thumb {
+    background: #e2e8f0;
+    border-radius: 10px;
+}
+
+/* Mobile Responsiveness */
+@media (max-width: 768px) {
+    #app-layout {
+        display: block; /* Matikan flex di mobile agar normal kembali */
+        height: auto;
+        overflow-y: auto;
+    }
+    .sidebar { display: none !important; }
+    .main-content { height: auto; overflow-y: visible; }
+}
+
+@media print { .no-print, .sidebar, .bottom-nav, .navbar { display: none !important; } }
+</style>
 <style scoped>
 .text-dark-green { color: var(--dark-green); }
 .bg-dark-green { background-color: var(--dark-green); }

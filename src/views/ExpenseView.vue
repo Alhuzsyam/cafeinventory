@@ -2,268 +2,417 @@
 import { ref, onMounted, computed } from 'vue'
 import axios from 'axios'
 
-// const API_URL = "http://127.0.0.1:8000"
+// --- KONFIGURASI API ---
 const API_URL = "https://api.inventorycafe.space"
+
 const expenses = ref([])
 const suggestions = ref([])
+const isSubmitting = ref(false)
+const manualItemName = ref("") 
 
-// --- STATE MODAL & FILTER ---
-const isModalOpen = ref(false)
-const selectedItem = ref(null)
-const inputPrice = ref(0)
-
-// State Filter: 'daily' atau 'monthly'
+const modal = ref({ show: false, title: "", message: "", type: "confirm", onConfirm: null })
+const priceModal = ref({ show: false, item: null, value: 0 })
 const filterMode = ref('daily') 
-const selectedDate = ref(new Date().toISOString().slice(0, 10)) // Format: YYYY-MM-DD
-const selectedMonth = ref(new Date().toISOString().slice(0, 7)) // Format: YYYY-MM
+const selectedDate = ref(new Date().toISOString().slice(0, 10))
+const selectedMonth = ref(new Date().toISOString().slice(0, 7))
 
 const fetchData = async () => {
     try {
         const [expRes, sugRes] = await Promise.all([
-            axios.get(`${API_URL}/expenses/`),
-            axios.get(`${API_URL}/expenses/suggestions`)
+            axios.get(`${API_URL}/expenses/`).catch(() => ({ data: [] })),
+            axios.get(`${API_URL}/expenses/suggestions`).catch(() => ({ data: [] }))
         ])
         expenses.value = expRes.data
         suggestions.value = sugRes.data
-    } catch (e) {
-        console.error("Gagal memuat data pengeluaran:", e)
-    }
+    } catch (e) { console.error(e) }
 }
 
-// --- LOGIKA FILTER DINAMIS ---
-const filteredHistory = computed(() => {
-    return expenses.value.filter(e => {
-        if (!e.is_completed || !e.purchase_date) return false
-        
-        if (filterMode.value === 'daily') {
-            // Cocokkan tanggal spesifik (YYYY-MM-DD)
-            return e.purchase_date === selectedDate.value
-        } else {
-            // Cocokkan bulan (YYYY-MM)
-            return e.purchase_date.startsWith(selectedMonth.value)
-        }
-    })
-})
+const addManualExpense = async () => {
+    if (!manualItemName.value.trim()) return
+    try {
+        isSubmitting.value = true
+        await axios.post(`${API_URL}/expenses/`, { item_name: manualItemName.value, is_completed: false, note: "Input Manual" })
+        manualItemName.value = "" 
+        fetchData()
+    } catch (e) { openCustomModal("Error", "Gagal menambah data", "alert") }
+    finally { isSubmitting.value = false }
+}
 
-const totalExpense = computed(() => {
-    return filteredHistory.value.reduce((sum, item) => sum + item.price, 0)
-})
+const openCustomModal = (title, message, type, action = null) => {
+    modal.value = { show: true, title, message, type, onConfirm: action }
+}
+const closeCustomModal = () => { modal.value.show = false }
+const handleModalConfirm = () => {
+    if (modal.value.onConfirm) modal.value.onConfirm()
+    closeCustomModal()
+}
+
+const triggerDelete = (id) => {
+    openCustomModal("Hapus Data?", "Data ini akan dihapus permanen dari sistem.", "confirm", async () => {
+        try {
+            await axios.delete(`${API_URL}/expenses/${id}`)
+            fetchData()
+        } catch (e) { console.error(e) }
+    })
+}
+
+const openPriceInput = (item) => {
+    priceModal.value = { show: true, item: item, value: 0 }
+}
+
+const submitPrice = async () => {
+    if (priceModal.value.value <= 0) return alert("Masukkan harga valid")
+    try {
+        await axios.put(`${API_URL}/expenses/${priceModal.value.item.id}/check`, { price: parseFloat(priceModal.value.value) })
+        priceModal.value.show = false
+        fetchData()
+    } catch (e) { console.error(e) }
+}
 
 const addSuggestion = async (p) => {
     try {
+        const qtyToBuy = p.max_stock_level - p.current_stock
         await axios.post(`${API_URL}/expenses/`, { 
-            item_name: p.name, 
-            product_id: p.id, 
-            is_completed: false 
+            item_name: p.name, product_id: p.id, is_completed: false,
+            note: `Beli ${qtyToBuy} ${p.unit}`
         })
         fetchData()
-    } catch (e) {
-        alert("Gagal menambah ke daftar belanja")
-    }
+    } catch (e) { console.error(e) }
 }
 
-const openModal = (item) => {
-    selectedItem.value = item
-    inputPrice.value = 0
-    isModalOpen.value = true
-}
+const filteredHistory = computed(() => {
+    return expenses.value.filter(e => {
+        if (!e.is_completed || !e.purchase_date) return false
+        return filterMode.value === 'daily' ? e.purchase_date === selectedDate.value : e.purchase_date.startsWith(selectedMonth.value)
+    })
+})
 
-const closeModal = () => {
-    isModalOpen.value = false
-    selectedItem.value = null
-}
-
-const confirmPurchase = async () => {
-    if (inputPrice.value <= 0) {
-        alert("Harap masukkan harga yang valid")
-        return
-    }
-    try {
-        await axios.put(`${API_URL}/expenses/${selectedItem.value.id}/check`, { 
-            price: parseFloat(inputPrice.value) 
-        })
-        closeModal()
-        fetchData()
-    } catch (e) {
-        alert("Gagal memperbarui status belanja")
-    }
-}
+const totalExpense = computed(() => filteredHistory.value.reduce((sum, item) => sum + item.price, 0))
 
 onMounted(fetchData)
 </script>
 
 <template>
-  <div class="page-container px-3 py-4">
+  <div class="app-container p-4">
     
-    <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4 gap-3">
-        <div class="d-flex flex-column gap-2">
-            <h5 class="fw-bold brand-text m-0">Pengeluaran & Belanja</h5>
-            
-            <div class="d-flex align-items-center gap-2 mt-1">
-                <div class="btn-group btn-group-sm shadow-sm rounded-pill p-1 bg-white border">
-                    <button 
-                        @click="filterMode = 'daily'" 
-                        class="btn btn-filter rounded-pill"
-                        :class="filterMode === 'daily' ? 'btn-active' : 'btn-inactive'"
-                    >Harian</button>
-                    <button 
-                        @click="filterMode = 'monthly'" 
-                        class="btn btn-filter rounded-pill"
-                        :class="filterMode === 'monthly' ? 'btn-active' : 'btn-inactive'"
-                    >Bulanan</button>
-                </div>
-                
-                <input 
-                    v-if="filterMode === 'daily'"
-                    type="date" 
-                    v-model="selectedDate" 
-                    class="form-control form-control-sm border-0 shadow-sm rounded-pill px-3 filter-input"
-                >
-                <input 
-                    v-else
-                    type="month" 
-                    v-model="selectedMonth" 
-                    class="form-control form-control-sm border-0 shadow-sm rounded-pill px-3 filter-input"
-                >
-            </div>
+    <header class="header-section mb-4">
+      <div class="d-flex flex-column flex-md-row justify-content-between align-items-center gap-3">
+        <div class="text-center text-md-start">
+          <h2 class="fw-800 text-dark-green m-0 ls-tight">Pengeluaran & Belanja</h2>
+          <div class="d-flex flex-wrap align-items-center justify-content-center justify-content-md-start gap-3 mt-2">
+              <div class="tab-navigator p-1 shadow-sm">
+                  <button :class="['tab-link-sm', { active: filterMode === 'daily' }]" @click="filterMode = 'daily'">Harian</button>
+                  <button :class="['tab-link-sm', { active: filterMode === 'monthly' }]" @click="filterMode = 'monthly'">Bulanan</button>
+              </div>
+              
+              <div class="date-picker-box shadow-xs">
+                <i class="fa-regular fa-calendar-alt text-muted me-2"></i>
+                <input v-if="filterMode === 'daily'" type="date" v-model="selectedDate" class="clean-date-input">
+                <input v-else type="month" v-model="selectedMonth" class="clean-date-input">
+              </div>
+          </div>
         </div>
 
-        <div class="stat-pill-modern bg-primary-green text-white shadow-sm">
-            <span class="x-small opacity-75 text-uppercase fw-bold ls-1">
-                {{ filterMode === 'daily' ? 'Belanja Hari Ini' : 'Belanja Bulan Ini' }}
-            </span>
-            <h5 class="m-0 fw-bold">Rp {{ totalExpense.toLocaleString() }}</h5>
+        <div class="total-pill shadow-sm animate-pop">
+          <span class="text-uppercase fw-700 opacity-70 x-small">Estimasi Terbelanja</span>
+          <h4 class="m-0 fw-800">Rp {{ totalExpense.toLocaleString() }}</h4>
         </div>
-    </div>
+      </div>
+    </header>
 
     <div class="row g-4">
         <div class="col-lg-7">
-            <div class="card-compact shadow-sm p-4 bg-white h-100">
-                <div class="d-flex align-items-center mb-4">
-                    <div class="icon-sm bg-success-soft text-success me-2">
-                        <i class="fa-solid fa-list-check"></i>
-                    </div>
-                    <h6 class="fw-bold brand-text m-0">Tunggu Beli (Stok Kritis)</h6>
+            <div class="glass-card h-100">
+                <div class="card-header-premium">
+                    <i class="fa-solid fa-clipboard-list text-premium-green me-2"></i>
+                    <span>Tunggu Beli</span>
                 </div>
 
-                <div v-if="suggestions.length > 0" class="mb-4 p-3 rounded-4 bg-light-danger border-start border-4 border-danger">
-                    <label class="x-small fw-bold text-danger text-uppercase mb-2 d-block">Saran Belanja AI</label>
-                    <div class="d-flex flex-wrap gap-2">
-                        <button v-for="s in suggestions" :key="s.id" @click="addSuggestion(s)" class="btn btn-suggestion shadow-sm">
-                            <i class="fa-solid fa-plus me-1"></i> {{ s.name }}
+                <div class="p-4">
+                    <div class="input-manual-wrapper mb-4 shadow-xs">
+                        <input v-model="manualItemName" type="text" class="input-modern" placeholder="Tambah belanja manual..." @keyup.enter="addManualExpense">
+                        <button @click="addManualExpense" class="btn-add-circle" :disabled="isSubmitting">
+                            <i class="fa-solid fa-plus"></i>
                         </button>
                     </div>
-                </div>
 
-                <div class="checklist-container custom-scroll">
-                    <div v-for="item in expenses.filter(e => !e.is_completed)" :key="item.id" @click="openModal(item)" class="todo-card d-flex align-items-center p-3 mb-2 rounded-4 border">
-                        <div class="check-circle me-3"><i class="fa-regular fa-circle"></i></div>
-                        <div class="flex-grow-1">
-                            <h6 class="m-0 fw-bold brand-text font-sm">{{ item.item_name }}</h6>
-                            <small class="text-muted x-small">Ketuk jika bahan sudah terbeli</small>
+                    <div v-if="suggestions.length > 0" class="ai-box mb-4">
+                        <label class="d-block x-small fw-800 text-danger text-uppercase mb-3"><i class="fa-solid fa-sparkles me-1"></i> Saran Belanja Stok Kritis</label>
+                        <div class="ai-grid">
+                            <button v-for="s in suggestions" :key="s.id" @click="addSuggestion(s)" class="btn-suggestion-card">
+                                <div class="fw-700 text-dark text-truncate">{{ s.name }}</div>
+                                <div class="suggestion-qty">Butuh {{ s.max_stock_level - s.current_stock }} {{ s.unit }}</div>
+                            </button>
                         </div>
-                        <i class="fa-solid fa-cart-plus text-muted opacity-25"></i>
+                    </div>
+
+                    <div class="checklist-wrapper custom-scroll">
+                        <div v-for="item in expenses.filter(e => !e.is_completed)" :key="item.id" class="shopping-item animate-pop">
+                            <div class="item-content" @click="openPriceInput(item)">
+                                <div class="radio-check"><i class="fa-regular fa-circle"></i></div>
+                                <div class="ms-3">
+                                    <h6 class="m-0 fw-700 text-dark-green">{{ item.item_name }}</h6>
+                                    <p class="m-0 x-small text-muted">{{ item.note || 'Ketuk untuk selesaikan' }}</p>
+                                </div>
+                            </div>
+                            <button class="btn-delete-premium" @click.stop="triggerDelete(item.id)">
+                                <i class="fa-solid fa-trash-can"></i>
+                            </button>
+                        </div>
+                        
+                        <div v-if="expenses.filter(e => !e.is_completed).length === 0" class="empty-layout">
+                            <p>Belum Ada Belanja Barang</p>
+                            <i class="fa-solid fa-dolly fs-1 opacity-10"></i>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
 
         <div class="col-lg-5">
-            <div class="card-compact shadow-sm p-4 bg-white h-100">
-                <div class="d-flex align-items-center mb-4">
-                    <div class="icon-sm bg-neutral-soft text-muted me-2">
-                        <i class="fa-solid fa-receipt"></i>
-                    </div>
-                    <h6 class="fw-bold brand-text m-0">History Belanja</h6>
+            <div class="glass-card h-100">
+                <div class="card-header-premium">
+                    <i class="fa-solid fa-check-double text-muted me-2"></i>
+                    <span>Riwayat Selesai</span>
                 </div>
-                <div class="history-container custom-scroll">
-                    <div v-for="item in filteredHistory" :key="item.id" class="history-item d-flex align-items-center p-3 mb-2 rounded-4 bg-light border-0">
-                        <div class="icon-done me-3 text-success"><i class="fa-solid fa-circle-check"></i></div>
-                        <div class="flex-grow-1">
-                            <h6 class="m-0 fw-bold text-muted text-decoration-line-through font-sm text-truncate" style="max-width: 150px;">{{ item.item_name }}</h6>
-                            <small class="x-small text-muted">{{ item.purchase_date }}</small>
+                
+                <div class="p-4">
+                    <div class="history-wrapper custom-scroll">
+                        <div v-for="item in filteredHistory" :key="item.id" class="history-card-modern animate-pop">
+                            <div class="flex-grow-1 overflow-hidden">
+                                <h6 class="m-0 fw-700 text-dark-green font-sm text-truncate">{{ item.item_name }}</h6>
+                                <span class="x-small text-muted fw-600"><i class="fa-regular fa-clock me-1"></i>{{ item.purchase_date }}</span>
+                            </div>
+                            <div class="text-end me-3">
+                                <div class="fw-800 text-premium-green font-sm">Rp{{ item.price.toLocaleString() }}</div>
+                            </div>
+                            <button class="btn-delete-ghost" @click="triggerDelete(item.id)">
+                                <i class="fa-solid fa-trash-can"></i>
+                            </button>
                         </div>
-                        <div class="text-end fw-bold brand-text font-sm">
-                            Rp {{ item.price.toLocaleString() }}
+
+                        <div v-if="filteredHistory.length === 0" class="empty-layout">
+                             <p>Belum Ada Riwayat Belanja</p>
+                             <i class="fa-solid fa-box-open fs-1 opacity-10"></i>
                         </div>
-                    </div>
-                    
-                    <div v-if="filteredHistory.length === 0" class="text-center py-5 text-muted x-small">
-                        Tidak ada catatan belanja untuk periode ini.
                     </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <Transition name="fade">
-        <div v-if="isModalOpen" class="modal-overlay" @click.self="closeModal">
-            <div class="modal-content-custom shadow-lg">
-                <div class="modal-header-custom mb-3">
-                    <h5 class="fw-bold brand-text m-0">Detail Belanja</h5>
-                    <button class="btn-close-custom" @click="closeModal">&times;</button>
-                </div>
-                <div class="modal-body-custom">
-                    <p class="text-muted small mb-3">Input harga beli untuk item <span class="fw-bold text-dark">{{ selectedItem?.item_name }}</span>:</p>
-                    <div class="input-group-custom">
-                        <span class="currency-label">Rp</span>
-                        <input v-model="inputPrice" type="number" class="form-control price-input" autofocus @keyup.enter="confirmPurchase">
-                    </div>
-                </div>
-                <div class="modal-footer-custom mt-4 d-flex gap-2">
-                    <button class="btn btn-cancel flex-grow-1" @click="closeModal">Batal</button>
-                    <button class="btn btn-confirm flex-grow-2" @click="confirmPurchase">Simpan</button>
+    <div v-if="modal.show || priceModal.show" class="modal-overlay">
+        <div v-if="modal.show" class="modal-card animate-pop shadow-2xl">
+            <div class="text-center mb-4">
+                <div :class="['modal-icon-box', modal.type === 'confirm' ? 'bg-soft-danger' : 'bg-soft-green']">
+                    <i :class="['fa-solid', modal.type === 'confirm' ? 'fa-exclamation-triangle text-danger' : 'fa-check-circle text-premium-green']"></i>
                 </div>
             </div>
+            <h5 class="fw-800 text-center text-dark-green mb-2">{{ modal.title }}</h5>
+            <p class="text-muted text-center small mb-5 px-2">{{ modal.message }}</p>
+            <div class="d-flex gap-2">
+                <button v-if="modal.type === 'confirm'" class="btn-premium-cancel w-100" @click="closeCustomModal">Batal</button>
+                <button class="btn-premium-action w-100" @click="handleModalConfirm">Lanjutkan</button>
+            </div>
         </div>
-    </Transition>
+
+        <div v-if="priceModal.show" class="modal-card animate-pop shadow-2xl">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="fw-800 text-dark-green m-0">Input Harga</h5>
+                <button class="btn-close-circle" @click="priceModal.show = false"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <p class="text-muted x-small mb-4">Item: <span class="fw-700 text-dark">{{ priceModal.item?.item_name }}</span></p>
+            <div class="price-input-box mb-5 shadow-xs">
+                <span class="currency-label">Rp</span>
+                <input type="number" v-model="priceModal.value" class="input-price-field" autofocus @keyup.enter="submitPrice">
+            </div>
+            <button class="btn-premium-action w-100 py-3 shadow-lg" @click="submitPrice">Simpan Pembelian</button>
+        </div>
+    </div>
 
   </div>
 </template>
 
 <style scoped>
-/* --- BOOTSTRAP OVERRIDES & CUSTOM --- */
-.brand-text { color: #2c4a3b; }
-.bg-primary-green { background-color: #2c4a3b; }
-.bg-success-soft { background-color: #e6f7ed; }
-.bg-neutral-soft { background-color: #f8f9fa; }
-.bg-light-danger { background-color: #fff5f5; }
-.ls-1 { letter-spacing: 1px; }
-.x-small { font-size: 0.75rem; }
-.font-sm { font-size: 0.9rem; }
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap');
 
-.btn-filter { border: none; font-size: 0.75rem; font-weight: 700; padding: 5px 15px; }
-.btn-active { background-color: #2c4a3b; color: white; }
-.btn-inactive { background-color: transparent; color: #adb5bd; }
+:root {
+  --dark-green: #1a3a34;
+  --premium-green: #2d6a4f;
+  --soft-green: #d8f3dc;
+  --soft-danger: #fff1f0;
+  --danger-red: #ff4d4f;
+}
 
-.filter-input { width: 160px; font-weight: 600; color: #2c4a3b; }
+.app-container { font-family: 'Plus Jakarta Sans', sans-serif; color: #2d3436; }
+.fw-800 { font-weight: 800; }
+.fw-700 { font-weight: 700; }
+.x-small { font-size: 0.68rem; }
+.font-sm { font-size: 0.88rem; }
+.ls-tight { letter-spacing: -0.5px; }
 
-.card-compact { border-radius: 28px; border: 1px solid #f8f9fa; }
-.stat-pill-modern { border-radius: 20px; padding: 10px 25px; text-align: right; min-width: 200px; }
-.icon-sm { width: 35px; height: 35px; border-radius: 10px; display: flex; align-items: center; justify-content: center; }
+/* 📅 MODERN DATE PICKER */
+.date-picker-box {
+    display: flex;
+    align-items: center;
+    background: white;
+    border-radius: 12px;
+    padding: 6px 14px;
+    border: 1.5px solid #edf2f7;
+}
+.clean-date-input {
+    border: none;
+    background: transparent;
+    font-size: 0.8rem;
+    font-weight: 800;
+    color: var(--dark-green);
+    outline: none;
+}
 
-/* --- ITEMS --- */
-.todo-card { transition: 0.2s; cursor: pointer; background: white; }
-.todo-card:hover { transform: translateX(8px); border-color: #84a548; background: #fdfdfd; }
-.check-circle { font-size: 1.2rem; color: #cbd5e1; }
-.btn-suggestion { background: white; color: #dc3545; border: 1px solid #fee2e2; padding: 6px 14px; border-radius: 50px; font-size: 0.7rem; font-weight: 700; }
+/* 🗑️ PREMIUM DELETE BUTTON */
+.btn-delete-premium {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    background: var(--soft-danger);
+    color: var(--danger-red);
+    border: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: 0.2s;
+    cursor: pointer;
+}
+.btn-delete-premium:hover { background: var(--danger-red); color: white; }
 
-/* --- MODAL --- */
-.modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(44, 74, 59, 0.4); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 2000; }
-.modal-content-custom { background: white; width: 90%; max-width: 380px; padding: 25px; border-radius: 30px; }
-.modal-header-custom { display: flex; justify-content: space-between; align-items: center; }
-.btn-close-custom { border: none; background: none; font-size: 1.5rem; color: #aaa; }
-.input-group-custom { display: flex; align-items: center; background: #f8f9fa; border-radius: 15px; padding: 5px 15px; border: 1px solid #eee; }
-.currency-label { font-weight: bold; color: #2c4a3b; margin-right: 10px; }
-.price-input { border: none; background: transparent; font-weight: bold; font-size: 1.2rem; color: #2c4a3b; width: 100%; }
-.btn { border-radius: 15px; padding: 10px; font-weight: 600; border: none; transition: 0.2s; }
-.btn-cancel { background: #f1f3f5; color: #6c757d; }
-.btn-confirm { background: #2c4a3b; color: white; }
+.btn-delete-ghost {
+    background: transparent;
+    border: none;
+    color: #cbd5e1;
+    padding: 8px;
+    transition: 0.2s;
+}
+.btn-delete-ghost:hover { color: var(--danger-red); }
 
-.custom-scroll { max-height: 400px; overflow-y: auto; padding-right: 5px; }
-.custom-scroll::-webkit-scrollbar { width: 4px; }
-.custom-scroll::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 10px; }
+/* 🏢 MODAL SYSTEM */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 34, 30, 0.65);
+    backdrop-filter: blur(8px);
+    z-index: 9999;
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+}
+.modal-card {
+    background: white;
+    width: 100%;
+    max-width: 350px;
+    padding: 30px;
+    border-radius: 28px;
+    position: relative;
+}
 
-.fade-enter-active, .fade-leave-active { transition: opacity 0.3s ease; }
-.fade-enter-from, .fade-leave-to { opacity: 0; }
+/* 🖋️ INPUT MANUAL */
+.input-manual-wrapper {
+    display: flex;
+    background: #f8fafc;
+    border: 1.5px solid #edf2f7;
+    border-radius: 16px;
+    padding: 6px;
+}
+.input-modern {
+    border: none;
+    background: transparent;
+    padding: 8px 12px;
+    flex-grow: 1;
+    outline: none;
+    font-weight: 600;
+    font-size: 0.85rem;
+}
+.btn-add-circle {
+    background: var(--dark-green);
+    color: white;
+    border: none;
+    width: 36px;
+    height: 36px;
+    border-radius: 12px;
+    transition: 0.3s;
+}
+.btn-add-circle:hover { background: var(--premium-green); transform: scale(1.05); }
+
+/* 🛒 SHOPPING ITEMS */
+.shopping-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    background: #fdfdfd;
+    border-radius: 18px;
+    margin-bottom: 12px;
+    border: 1px solid #f1f2f6;
+    cursor: pointer;
+    transition: 0.25s;
+}
+.shopping-item:hover { border-color: var(--premium-green); transform: translateX(5px); background: white; }
+.item-content { display: flex; align-items: center; flex-grow: 1; }
+.radio-check { font-size: 1.1rem; color: #cbd5e1; }
+
+/* 📊 HISTORY CARDS */
+.history-card-modern {
+    display: flex;
+    align-items: center;
+    padding: 14px 0;
+    border-bottom: 1px dashed #f1f2f6;
+}
+
+/* EMPTY STATE */
+.empty-layout {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 0;
+    color: #b2bec3;
+    text-align: center;
+}
+.empty-layout p { margin-bottom: 10px; font-weight: 700; font-size: 0.85rem; opacity: 0.6; }
+
+/* AI GRID */
+.ai-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 10px;
+}
+.btn-suggestion-card {
+    background: white;
+    border: 1px solid #fee2e2;
+    padding: 10px;
+    border-radius: 12px;
+    text-align: left;
+    transition: 0.2s;
+}
+.btn-suggestion-card:hover { background: #d32f2f; border-color: #d32f2f; }
+.btn-suggestion-card:hover div { color: white !important; }
+
+/* OTHER UTILS */
+.glass-card { background: white; border-radius: 24px; border: 1px solid #f1f2f6; box-shadow: 0 10px 40px rgba(0,0,0,0.03); overflow: hidden; min-height: 520px; }
+.card-header-premium { padding: 18px 20px; font-weight: 800; font-size: 0.8rem; color: #636e72; text-transform: uppercase; border-bottom: 1px solid #f8fafc; letter-spacing: 0.5px; }
+.tab-navigator { background: #f1f2f6; border-radius: 12px; display: flex; padding: 4px; }
+.tab-link-sm { border: none; background: transparent; padding: 6px 14px; border-radius: 10px; font-weight: 700; font-size: 0.72rem; color: #636e72; transition: 0.3s; }
+.tab-link-sm.active { background: white; color: var(--dark-green); box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+.total-pill { background: #1a3a34; color: white; padding: 14px 28px; border-radius: 20px; text-align: right; }
+.ai-box { background: #fff5f5; border-radius: 18px; padding: 15px; border: 1px solid #fee2e2; }
+.suggestion-qty { font-size: 0.65rem; color: #d32f2f; font-weight: 800; }
+.custom-scroll { max-height: 480px; overflow-y: auto; padding-right: 5px; }
+.price-input-box { display: flex; align-items: center; background: #f8fafc; padding: 14px 20px; border-radius: 18px; border: 1.5px solid #edf2f7; }
+.input-price-field { border: none; background: transparent; font-weight: 800; font-size: 1.5rem; color: var(--dark-green); outline: none; width: 100%; }
+.btn-premium-action { background: var(--dark-green); color: white; border: none; border-radius: 16px; padding: 12px; font-weight: 700; transition: 0.3s; }
+.btn-premium-action:hover { background: var(--premium-green); transform: translateY(-2px); }
+.btn-premium-cancel { background: #f1f2f6; color: #636e72; border: none; border-radius: 16px; padding: 12px; font-weight: 700; }
+.modal-icon-box { width: 64px; height: 64px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 2rem; margin: 0 auto; }
+.bg-soft-danger { background: #fff1f0; } .bg-soft-green { background: #f0fff4; }
+.animate-pop { animation: pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1); }
+@keyframes pop { from { opacity: 0; transform: scale(0.92); } to { opacity: 1; transform: scale(1); } }
 </style>
