@@ -120,23 +120,37 @@ const selectIngredient = (index, product) => {
 }
 
 const editMenu = (m) => {
+    // 1. Pastikan tab berpindah ke 'menu'
     activeTab.value = 'menu';
-    editMode.value = { type: 'menu', id: m.id }
+    
+    // 2. Set ID menu yang sedang diedit
+    editMode.value = { type: 'menu', id: m.id };
+    
+    // 3. Map data resep dengan fallback (cadangan) pencarian ke master produk
     menuForm.value = { 
         name: m.name, 
         price: m.price, 
-        description: m.description, 
+        description: m.description || "", 
         division: m.division || 'Bar',
-        recipes: m.recipes.map(r => ({ 
-            product_id: r.product_id, 
-            amount_needed: r.amount_needed, 
-            searchQuery: r.product?.name || '', 
-            unit: r.product?.unit || '', 
-            isOpen: false 
-        }))
-    }
+        recipes: (m.recipes || []).map(r => {
+            // Cari data produk di daftar master jika data r.product dari API tidak lengkap
+            const masterProduct = products.value.find(p => p.id === r.product_id);
+            
+            return { 
+                product_id: r.product_id, 
+                amount_needed: r.amount_needed, 
+                // Jika r.product.name kosong, ambil dari masterProduct
+                searchQuery: r.product?.name || masterProduct?.name || 'Bahan tidak ditemukan', 
+                // Jika r.product.unit kosong, ambil dari masterProduct
+                unit: r.product?.unit || masterProduct?.unit || '', 
+                isOpen: false 
+            }
+        })
+    };
+    
+    // 4. Scroll otomatis ke atas agar formulir terlihat
     window.scrollTo({ top: 0, behavior: 'smooth' });
-}
+};
 
 const triggerDeleteMenu = (id) => {
     openModal("Hapus Menu?", "Menu ini tidak akan muncul lagi di kasir.", "confirm", async () => {
@@ -172,8 +186,8 @@ const submitMenu = async () => {
 }
 
 const getFilteredProducts = (query) => {
-    if (!query) return products.value.slice(0, 10)
-    return products.value.filter(p => p.name.toLowerCase().includes(query.toLowerCase())).slice(0, 10)
+    if (!query) return products.value.slice(0, 500)
+    return products.value.filter(p => p.name.toLowerCase().includes(query.toLowerCase())).slice(0, 500)
 }
 
 onMounted(fetchData)
