@@ -2,79 +2,76 @@
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import axios from 'axios'
 
-// --- STATE UMUM ---
+// --- CONFIG & STATE ---
 const queue = ref([])
 const API_URL = "https://api.inventorycafe.space"
 let pollingInterval = null
+const knownKitchenIds = ref(new Set()) 
 
-// --- STATE AUDIO & LOGIK NOTIFIKASI ---
+// Audio Setup
+const newOrderSound = new Audio("/sounds/bell.mp3")
+const deliveredSound = new Audio("/sounds/bell3.mp3")
 const isAudioEnabled = ref(true)
-const knownKitchenIds = ref(new Set()) // Menyimpan ID yang sudah pernah dilihat
-const audioPath = "/sounds/bell.mp3" 
-const notificationSound = new Audio(audioPath)
 
-// --- FETCH DATA ---
+// Reactive Set untuk tracking loading per item secara instan
+const processingIds = ref(new Set())
+
+// --- LOGIKA FETCH DATA ---
 const fetchQueue = async () => {
     try {
         const res = await axios.get(`${API_URL}/queue/`)
         const currentQueue = res.data || []
         
-        // Ambil ID khusus untuk divisi Kitchen
-        const currentKitchenItems = currentQueue.filter(i => i.division === 'Kitchen')
-        const currentKitchenIds = currentKitchenItems.map(i => i.id)
-
-        // LOGIKA BUNYI: Cek apakah ada ID baru yang belum pernah masuk ke "knownKitchenIds"
+        // Cek pesanan baru (Pending) untuk bunyi bel standard
+        const newPendingItems = currentQueue.filter(i => i.status === 'PENDING')
         let hasNewOrder = false
-        currentKitchenIds.forEach(id => {
-            if (!knownKitchenIds.value.has(id)) {
+        newPendingItems.forEach(item => {
+            if (!knownKitchenIds.value.has(item.id)) {
                 hasNewOrder = true
-                knownKitchenIds.value.add(id) // Tandai ID ini sebagai "sudah dilihat"
+                knownKitchenIds.value.add(item.id)
             }
         });
 
-        // Bunyi hanya jika ada pesanan benar-benar baru
         if (isAudioEnabled.value && hasNewOrder) {
-            playBell()
+            newOrderSound.currentTime = 0
+            newOrderSound.play().catch(() => {})
         }
 
-        // Bersihkan ID lama yang sudah tidak ada di antrean agar memory tidak bengkak
         const currentAllIds = new Set(currentQueue.map(i => i.id))
         knownKitchenIds.value.forEach(id => {
             if (!currentAllIds.has(id)) knownKitchenIds.value.delete(id)
         })
 
         queue.value = currentQueue
-    } catch (e) {
-        console.error("Gagal load queue:", e)
-    }
+    } catch (e) { console.error("Sync Error") }
 }
 
-const playBell = () => {
-    notificationSound.currentTime = 0 
-    notificationSound.play().catch(err => console.warn("Audio blocked", err))
-}
-
-const toggleAudio = () => {
-    isAudioEnabled.value = !isAudioEnabled.value
-    if (isAudioEnabled.value) {
-        notificationSound.play().then(() => notificationSound.pause())
-    }
-}
-
-// --- ACTIONS ---
-const markAsServed = async (id) => {
+// --- ACTIONS WRAPPER (WITH INSTANT LOADING & UNIQUE SOUND) ---
+const handleAction = async (id, actionFn, statusChangeType) => {
+    if (processingIds.value.has(id)) return
+    processingIds.value.add(id) // Aktifkan loading instan
+    
     try {
-        // Hapus ID dari set "sudah dilihat" agar tidak ada sisa data
-        knownKitchenIds.value.delete(id)
+        await actionFn(id)
         
-        await axios.put(`${API_URL}/queue/${id}/serve`)
-        await fetchQueue() // Refresh data langsung
-    } catch (e) {
-        alert("Gagal update status")
+        // Pemicu Suara bell3.mp3 saat beralih ke status DIANTAR (Delivered)
+        if (isAudioEnabled.value && statusChangeType === 'to_delivered') {
+            deliveredSound.currentTime = 0
+            deliveredSound.play().catch(() => {})
+        }
+        
+        await fetchQueue()
+    } catch (e) { 
+        alert("Gagal memperbarui status. Cek koneksi server.") 
+    } finally {
+        processingIds.value.delete(id) // Matikan loading
     }
 }
 
-// --- COMPUTED ---
+const markAsPrepared = (id) => handleAction(id, (id) => axios.put(`${API_URL}/queue/${id}/prepare`), 'to_prepared')
+const markAsDelivered = (id) => handleAction(id, (id) => axios.put(`${API_URL}/queue/${id}/delivered`), 'to_delivered')
+const markAsServed = (id) => handleAction(id, (id) => axios.put(`${API_URL}/queue/${id}/serve`), 'to_served')
+
 const barQueue = computed(() => queue.value.filter(i => i.division === 'Bar'))
 const kitchenQueue = computed(() => queue.value.filter(i => i.division === 'Kitchen'))
 
@@ -82,107 +79,95 @@ onMounted(() => {
     fetchQueue()
     pollingInterval = setInterval(fetchQueue, 5000)
 })
+onUnmounted(() => clearInterval(pollingInterval))
 
-onUnmounted(() => {
-    clearInterval(pollingInterval)
-})
-
-const formatTime = (dateString) => {
-    const date = new Date(dateString)
-    return date.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
-}
+const formatTime = (date) => new Date(date).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
 </script>
 
 <template>
-  <div class="page-container h-100 p-3">
+  <div class="monitor-container p-4 min-vh-100">
     
-    <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-end mb-4 px-2 gap-3">
-        <div>
-            <h2 class="fw-bold brand-text m-0">
-                <i class="fa-solid fa-leaf me-2 text-accent"></i>Order Monitor
-            </h2>
-            <p class="text-muted m-0 ps-1" style="font-size: 0.9rem;">Live Kitchen Display System</p>
+    <header class="d-flex justify-content-between align-items-center mb-5 px-3">
+        <div class="brand-group">
+            <h1 class="m-0 fw-bold header-title">Order <span class="text-sage">Monitor</span> 🌿</h1>
+            <p class="text-muted small m-0 letter-spacing-1">REAL-TIME KITCHEN DISPLAY</p>
         </div>
 
-        <div class="d-flex align-items-center gap-4 py-2">
-            <button @click="toggleAudio" class="btn-audio shadow-sm px-4" :class="{ 'active': isAudioEnabled }">
-                <i class="fa-solid me-2" :class="isAudioEnabled ? 'fa-volume-high' : 'fa-volume-xmark'"></i>
-                <span>{{ isAudioEnabled ? 'Suara Aktif' : 'Suara Mati' }}</span>
+        <div class="d-flex gap-3 align-items-center">
+            <button @click="isAudioEnabled = !isAudioEnabled" class="btn-audio-toggle shadow-sm" :class="{ 'muted': !isAudioEnabled }">
+                <i class="fa-solid" :class="isAudioEnabled ? 'fa-volume-high' : 'fa-volume-xmark'"></i>
+                <span>{{ isAudioEnabled ? 'Sound On' : 'Mute' }}</span>
             </button>
-
-            <div class="live-indicator d-flex align-items-center ms-2">
-                <div class="blob red me-3"></div>
-                <span class="text-muted fw-bold small tracking-wider">LIVE UPDATE</span>
-            </div>
+            <div class="live-badge shadow-sm"><span class="dot-pulse"></span> LIVE</div>
         </div>
-    </div>
+    </header>
 
-    <div class="row h-100 g-4">
-        <div class="col-md-6 d-flex flex-column">
-            <div class="station-wrapper bar-theme h-100">
-                <div class="station-header shadow-sm">
-                    <div class="icon-circle"><i class="fa-solid fa-martini-glass-citrus"></i></div>
-                    <div>
-                        <h4 class="fw-bold m-0">Bar Station</h4>
-                        <small class="opacity-75">{{ barQueue.length }} Antrean</small>
+    <div class="row g-4 h-100">
+        <div v-for="station in [{name: 'Barista', items: barQueue, icon: 'fa-mug-hot'}, {name: 'Kitchen', items: kitchenQueue, icon: 'fa-utensils'}]" 
+             :key="station.name" class="col-lg-6">
+            
+            <div class="station-container h-100">
+                <div class="station-header p-4 d-flex justify-content-between align-items-center">
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="icon-circle shadow-sm"><i class="fa-solid" :class="station.icon"></i></div>
+                        <h4 class="m-0 fw-bold uppercase-spaced">{{ station.name }}</h4>
                     </div>
+                    <span class="count-pill">{{ station.items.length }}</span>
                 </div>
-                <div class="queue-scroll-area">
-                    <div v-if="barQueue.length === 0" class="empty-state">
-                        <i class="fa-solid fa-mug-hot mb-3 fs-1"></i>
-                        <p>Bar sedang kosong.</p>
-                    </div>
-                    <div v-for="item in barQueue" :key="item.id" class="plant-card fade-in">
-                        <div class="card-content">
-                            <div class="d-flex justify-content-between mb-2">
-                                <span class="order-badge">#{{ item.sale_id }}</span>
-                                <span class="time-badge">{{ formatTime(item.created_at) }}</span>
-                            </div>
-                            <h5 class="menu-title">{{ item.menu_name }}</h5>
-                            <div class="d-flex align-items-center gap-2 mb-2">
-                                <span class="customer-name">{{ item.customer_name }}</span>
-                                <span class="qty-badge">x{{ item.quantity }}</span>
-                            </div>
-                            <div v-if="item.note" class="note-bubble">{{ item.note }}</div>
-                        </div>
-                        <div class="card-action">
-                            <button class="btn-serve" @click="markAsServed(item.id)"><i class="fa-solid fa-check"></i></button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
 
-        <div class="col-md-6 d-flex flex-column">
-            <div class="station-wrapper kitchen-theme h-100">
-                <div class="station-header shadow-sm">
-                    <div class="icon-circle"><i class="fa-solid fa-fire-burner"></i></div>
-                    <div>
-                        <h4 class="fw-bold m-0">Kitchen Station</h4>
-                        <small class="opacity-75">{{ kitchenQueue.length }} Antrean</small>
-                    </div>
-                </div>
-                <div class="queue-scroll-area">
-                    <div v-if="kitchenQueue.length === 0" class="empty-state">
-                        <i class="fa-solid fa-utensils mb-3 fs-1"></i>
-                        <p>Dapur sedang kosong.</p>
-                    </div>
-                    <div v-for="item in kitchenQueue" :key="item.id" class="plant-card fade-in">
-                        <div class="card-content">
-                            <div class="d-flex justify-content-between mb-2">
-                                <span class="order-badge">#{{ item.sale_id }}</span>
-                                <span class="time-badge">{{ formatTime(item.created_at) }}</span>
+                <div class="orders-viewport custom-scroll p-3">
+                    <TransitionGroup name="staggered-list">
+                        <div v-for="item in station.items" :key="item.id" 
+                             class="elegant-card shadow-sm" 
+                             :class="{ 'status-prepared': item.status === 'PREPARED', 'status-delivered': item.status === 'DELIVERED' }"
+                             @dblclick="item.status === 'DELIVERED' ? markAsServed(item.id) : null">
+                            
+                            <div class="card-main">
+                                <div class="card-meta d-flex justify-content-between">
+                                    <span class="order-number">#{{ item.sale_id }}</span>
+                                    <span class="order-clock">{{ formatTime(item.created_at) }}</span>
+                                </div>
+
+                                <h2 class="menu-title">{{ item.menu_name }}</h2>
+                                
+                                <div class="card-footer-info d-flex align-items-center gap-3 mt-1">
+                                    <span class="customer-pill"><i class="fa-regular fa-user me-2"></i>{{ item.customer_name }}</span>
+                                    <span class="quantity-pill">x{{ item.quantity }}</span>
+                                </div>
+
+                                <div v-if="item.note" class="quote-note shadow-sm mt-3">
+                                    <i class="fa-solid fa-quote-left quote-icon"></i>
+                                    <span class="note-text">{{ item.note }}</span>
+                                </div>
+
+                                <div class="status-box mt-3">
+                                    <span v-if="item.status === 'PENDING'" class="tag tag-pending">Proses</span>
+                                    <span v-else-if="item.status === 'PREPARED'" class="tag tag-prepared animate-pulse">Siap Antar</span>
+                                    <span v-else class="tag tag-delivered">OTW Meja</span>
+                                </div>
                             </div>
-                            <h5 class="menu-title">{{ item.menu_name }}</h5>
-                            <div class="d-flex align-items-center gap-2 mb-2">
-                                <span class="customer-name">{{ item.customer_name }}</span>
-                                <span class="qty-badge">x{{ item.quantity }}</span>
+
+                            <div class="card-action-side p-2">
+                                <button class="btn-main-action" 
+                                        :class="item.status.toLowerCase()"
+                                        @click="item.status === 'PENDING' ? markAsPrepared(item.id) : item.status === 'PREPARED' ? markAsDelivered(item.id) : markAsServed(item.id)" 
+                                        :disabled="processingIds.has(item.id)">
+                                    
+                                    <i v-if="processingIds.has(item.id)" class="fa-solid fa-spinner-third fa-spin"></i>
+                                    
+                                    <template v-else>
+                                        <i v-if="item.status === 'PENDING'" class="fa-solid fa-check"></i>
+                                        <i v-else-if="item.status === 'PREPARED'" class="fa-solid fa-person-running"></i>
+                                        <i v-else class="fa-solid fa-circle-check"></i>
+                                    </template>
+                                </button>
                             </div>
-                            <div v-if="item.note" class="note-bubble">{{ item.note }}</div>
                         </div>
-                        <div class="card-action">
-                            <button class="btn-serve" @click="markAsServed(item.id)"><i class="fa-solid fa-check"></i></button>
-                        </div>
+                    </TransitionGroup>
+
+                    <div v-if="station.items.length === 0" class="empty-state">
+                        <i class="fa-solid fa-clipboard-check mb-3 fa-3x opacity-10"></i>
+                        <p class="fw-bold text-muted-light">No active orders</p>
                     </div>
                 </div>
             </div>
@@ -192,90 +177,94 @@ const formatTime = (dateString) => {
 </template>
 
 <style scoped>
-/* --- THEME COLORS --- */
-.brand-text { color: #203A2E; }
-.text-accent { color: #84a548; }
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;600;700;800&display=swap');
 
-/* --- BUTTON AUDIO (FIXED SPACE) --- */
-.btn-audio {
-    background: white;
-    border: 1.5px solid #eee;
-    border-radius: 50px;
-    padding: 10px 20px;
-    font-weight: 700;
-    font-size: 0.85rem;
-    color: #dc3545;
-    transition: 0.3s;
-    display: flex;
-    align-items: center;
-    min-width: 170px; /* Biar posisi LIVE UPDATE ga geser pas teks berubah */
-    justify-content: center;
-}
-.btn-audio.active {
-    color: #2c4a3b;
-    border-color: #2c4a3b;
-    background: #e6f0eb;
+/* --- DESIGN SYSTEM --- */
+:root {
+    --sage: #84a548;
+    --sage-light: #f7fee7;
+    --bg-light: #f9fafb;
+    --slate: #1e293b;
+    --white: #ffffff;
+    --note-bg: #fffce8;
+    --note-border: #facc15;
 }
 
-/* --- LIVE INDICATOR --- */
-.live-indicator {
-    padding: 10px 18px;
-    background: rgba(0,0,0,0.04);
-    border-radius: 50px;
+.monitor-container {
+    background-color: #f9fafb;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+    color: #1e293b;
 }
-.tracking-wider { letter-spacing: 0.05rem; }
+
+.text-sage { color: #84a548; }
+.header-title { font-weight: 800; letter-spacing: -1.5px; font-size: 2.2rem; }
+.uppercase-spaced { text-transform: uppercase; letter-spacing: 2px; font-size: 0.75rem; }
+.letter-spacing-1 { letter-spacing: 2px; font-weight: 700; color: #94a3b8; }
 
 /* --- STATION LAYOUT --- */
-.station-wrapper {
-    background-color: #f0f4f1;
-    border-radius: 35px;
-    padding: 25px;
-}
-.station-header {
-    display: flex; align-items: center; gap: 15px; margin-bottom: 25px;
-    padding: 15px 20px; background: white; border-radius: 50px;
-}
+.station-container { background: #f1f5f9; border-radius: 32px; display: flex; flex-direction: column; overflow: hidden; height: calc(100vh - 180px); }
+.icon-circle { width: 45px; height: 45px; background: white; border-radius: 14px; display: flex; align-items: center; justify-content: center; color: #84a548; font-size: 1.2rem; }
+.count-pill { background: #1e293b; color: white; padding: 6px 16px; border-radius: 100px; font-weight: 800; font-size: 0.8rem; }
 
-.icon-circle {
-    width: 48px; height: 48px; border-radius: 50%; display: flex; 
-    align-items: center; justify-content: center; font-size: 1.3rem; color: white;
+/* --- ELEGANT CARD --- */
+.elegant-card {
+    background: white; border-radius: 28px; margin-bottom: 16px; display: flex; 
+    padding: 24px; transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); border: 2px solid transparent;
 }
-.bar-theme .icon-circle { background-color: #4A6C56; }
-.kitchen-theme .icon-circle { background-color: #d68c45; }
+.elegant-card:hover { transform: translateY(-5px); box-shadow: 0 20px 40px -10px rgba(0,0,0,0.05) !important; }
 
-/* --- CARD STYLING --- */
-.plant-card {
-    background: white; border-radius: 26px; padding: 22px; margin-bottom: 18px;
-    display: flex; justify-content: space-between; align-items: center;
-    border: 1px solid rgba(0,0,0,0.01);
+.status-prepared { border-color: #84a548; background: #f7fee7; }
+.status-delivered { border-color: #3b82f6; background: #eff6ff; }
+
+.card-main { flex-grow: 1; }
+.order-number { font-weight: 800; color: #cbd5e1; font-size: 0.85rem; }
+.order-clock { font-size: 0.8rem; color: #94a3b8; font-weight: 600; }
+.menu-title { font-weight: 800; font-size: 1.6rem; color: #1e293b; margin: 4px 0; letter-spacing: -0.5px; }
+.customer-pill { background: #f1f5f9; padding: 4px 12px; border-radius: 10px; font-weight: 700; font-size: 0.85rem; color: #64748b; }
+.quantity-pill { color: #84a548; font-weight: 800; font-size: 1.4rem; }
+
+/* --- NEW YELLOW QUOTE NOTE --- */
+.quote-note {
+    background-color: #fffce8;
+    border: 2px dashed #facc15;
+    border-radius: 16px;
+    padding: 12px 18px;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    max-width: 90%;
 }
-.menu-title { font-weight: 800; color: #203A2E; margin-bottom: 6px; font-size: 1.15rem; }
-.qty-badge { background: #e6f0eb; color: #2c4a3b; padding: 2px 10px; border-radius: 10px; font-weight: 800; }
-.order-badge { background: #f3f4f6; color: #6b7280; padding: 4px 12px; border-radius: 12px; font-size: 0.75rem; font-weight: 800; }
+.quote-icon { color: #eab308; font-size: 0.9rem; align-self: flex-start; margin-top: 4px; }
+.note-text { color: #854d0e; font-weight: 700; font-style: italic; font-size: 0.9rem; line-height: 1.4; }
 
-.note-bubble {
-    background-color: #fff9c4; color: #856404; padding: 10px 15px;
-    border-radius: 15px; font-size: 0.85rem; margin-top: 12px; border: 1px dashed #e6dbb9;
+/* --- BUTTONS --- */
+.btn-main-action {
+    width: 65px; height: 65px; border-radius: 22px; border: none; background: #1e293b;
+    color: white; font-size: 1.6rem; transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1); display: flex; align-items: center; justify-content: center;
 }
+.btn-main-action:hover:not(:disabled) { transform: scale(1.1) rotate(5deg); }
+.btn-main-action.prepared { background: #84a548; }
+.btn-main-action.delivered { background: #3b82f6; }
 
-.btn-serve {
-    width: 55px; height: 55px; border-radius: 50%; border: none;
-    background-color: #203A2E; color: white; transition: 0.2s;
-}
-.btn-serve:hover { background-color: #84a548; transform: scale(1.1); }
+.btn-audio-toggle { background: white; border: 1px solid #f1f5f9; border-radius: 100px; padding: 10px 24px; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 10px; transition: 0.3s; }
+.btn-audio-toggle.muted { color: #ef4444; border-color: #fecaca; background: #fff1f2; }
 
-/* --- ANIMASI --- */
-.blob { width: 12px; height: 12px; background: #ff5252; border-radius: 50%; animation: pulse-red 2s infinite; }
-@keyframes pulse-red {
-    0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 82, 82, 0.7); }
-    70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(255, 82, 82, 0); }
-    100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 82, 82, 0); }
-}
-.fade-in { animation: fadeIn 0.4s ease-out forwards; }
-@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+/* --- STATUS TAGS --- */
+.tag { padding: 5px 14px; border-radius: 100px; font-weight: 800; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px; }
+.tag-pending { background: #fef3c7; color: #d97706; }
+.tag-prepared { background: #dcfce7; color: #166534; }
+.tag-delivered { background: #dbeafe; color: #1e40af; }
 
-/* SCROLLBAR */
-.queue-scroll-area { overflow-y: auto; flex-grow: 1; padding-right: 8px; scrollbar-width: thin; }
-::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+/* --- ANIMATIONS --- */
+@keyframes fa-spin { to { transform: rotate(360deg); } }
+.fa-spinner-third { animation: fa-spin 0.8s linear infinite; }
+.animate-pulse { animation: pulse 2s infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+
+.live-badge { background: #1e293b; color: white; padding: 8px 18px; border-radius: 100px; font-weight: 800; font-size: 0.75rem; display: flex; align-items: center; gap: 8px; }
+.dot-pulse { width: 8px; height: 8px; background: #22c55e; border-radius: 50%; animation: dot-blink 1.5s infinite; }
+@keyframes dot-blink { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.4); opacity: 0.4; } }
+
+.custom-scroll { overflow-y: auto; scrollbar-width: none; }
+.empty-state { text-align: center; padding-top: 80px; }
 </style>
