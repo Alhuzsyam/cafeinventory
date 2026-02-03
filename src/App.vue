@@ -160,8 +160,7 @@ const toggleSidebar = () => {
 body, html { 
   margin: 0; 
   padding: 0;
-  height: 100%; /* Penting agar vh bekerja maksimal */
-  overflow: hidden; /* Mencegah scroll double di level body */
+  height: 100%;
   font-family: 'Plus Jakarta Sans', sans-serif; 
   background: #f8f9fa; 
 }
@@ -169,35 +168,42 @@ body, html {
 /* Flex context utama */
 #app-layout { 
     display: flex; 
-    height: 100vh; /* Kunci tinggi aplikasi seukuran layar */
+    height: 100vh;
     width: 100vw;
-    overflow: hidden; /* Pastikan tidak ada scroll di kontainer paling luar */
+    overflow: hidden; /* Dikunci hanya untuk desktop */
     transition: all 0.3s; 
 }
 
 .login-mode { display: block !important; overflow-y: auto !important; }
+
+/* FIX: Unlocked scroll untuk Mobile */
+@media (max-width: 768px) {
+    body, html {
+        overflow-y: auto !important; /* Paksa body bisa scroll */
+        height: auto !important;
+    }
+    #app-layout {
+        display: block !important; /* Matikan flex agar konten memanjang ke bawah */
+        height: auto !important;
+        overflow-y: visible !important;
+    }
+}
 </style>
 
 <style scoped>
 .text-dark-green { color: var(--dark-green); }
 .bg-dark-green { background-color: var(--dark-green); }
 
-/* --- SIDEBAR FIX --- */
+/* --- SIDEBAR --- */
 .sidebar {
-    /* Gunakan flex basis untuk mengunci lebar agar tidak menciut */
     flex: 0 0 var(--sidebar-width);
     width: var(--sidebar-width);
-    
-    /* Kunci tinggi agar sidebar tetap diam saat konten di kanan di-scroll */
     height: 100vh;
     background-color: white;
     display: flex;
     flex-direction: column;
-    
-    /* Tambahkan scroll internal JIKA menu sidebar sangat banyak */
     overflow-y: auto;
     overflow-x: hidden;
-    
     border-right: 1px solid #edf2f7;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     z-index: 1040;
@@ -208,13 +214,11 @@ body, html {
     width: var(--sidebar-collapsed);
 }
 
-/* --- MAIN CONTENT FIX (Scroll Independen) --- */
+/* --- MAIN CONTENT --- */
 .main-content {
     flex: 1;
-    height: 100vh; /* Kunci tinggi seukuran layar */
-    min-width: 0; /* Mencegah elemen lebar (seperti chart/tabel) mendorong sidebar keluar */
-    
-    /* AKTIFKAN SCROLL DI SINI */
+    height: 100vh;
+    min-width: 0;
     overflow-y: auto; 
     display: flex;
     flex-direction: column;
@@ -222,104 +226,11 @@ body, html {
 
 .content-wrapper {
     width: 100%;
-    /* Memberi ruang di bawah agar konten terakhir tidak tertutup bottom nav di mobile */
+    /* Ruang ekstra agar tidak tertutup bottom nav */
     padding-bottom: 100px !important; 
 }
 
-/* --- Navigasi & Estetika --- */
-.nav-link {
-    display: flex;
-    align-items: center;
-    color: #6c757d;
-    padding: 12px 15px;
-    border-radius: 12px;
-    text-decoration: none;
-    font-size: 0.9rem;
-    white-space: nowrap; /* Mencegah teks turun baris saat sidebar mengecil */
-    transition: all 0.2s;
-}
-
-.nav-link.active {
-    background-color: #e6f0eb;
-    color: var(--dark-green);
-    font-weight: 700;
-}
-
-/* Custom Scrollbar agar area konten terlihat premium */
-.main-content::-webkit-scrollbar,
-.sidebar::-webkit-scrollbar {
-    width: 6px;
-}
-.main-content::-webkit-scrollbar-thumb,
-.sidebar::-webkit-scrollbar-thumb {
-    background: #e2e8f0;
-    border-radius: 10px;
-}
-
-/* Mobile Responsiveness */
-@media (max-width: 768px) {
-    #app-layout {
-        display: block; /* Matikan flex di mobile agar normal kembali */
-        height: auto;
-        overflow-y: auto;
-    }
-    .sidebar { display: none !important; }
-    .main-content { height: auto; overflow-y: visible; }
-}
-
-@media print { .no-print, .sidebar, .bottom-nav, .navbar { display: none !important; } }
-</style>
-<style scoped>
-.text-dark-green { color: var(--dark-green); }
-.bg-dark-green { background-color: var(--dark-green); }
-
-/* --- SIDEBAR FIX --- */
-.sidebar {
-    /* Gunakan flex basis untuk mengunci lebar */
-    flex: 0 0 var(--sidebar-width);
-    width: var(--sidebar-width);
-    min-width: var(--sidebar-width);
-    max-width: var(--sidebar-width);
-    
-    height: 100vh;
-    position: sticky;
-    top: 0;
-    background-color: white;
-    overflow-y: auto;
-    overflow-x: hidden;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    z-index: 1040;
-}
-
-/* Mode Collapse */
-.sidebar-collapsed .sidebar {
-    flex: 0 0 var(--sidebar-collapsed);
-    width: var(--sidebar-collapsed);
-    min-width: var(--sidebar-collapsed);
-    max-width: var(--sidebar-collapsed);
-}
-
-/* --- MAIN CONTENT FIX --- */
-.main-content {
-    flex: 1; /* Biar dia yang mengambil sisa ruang */
-    min-width: 0; /* TRICK: Penting agar konten di dalam (chart/table) tidak mendorong flexbox */
-    display: flex;
-    flex-direction: column;
-    overflow-x: hidden;
-}
-
-.content-wrapper {
-    width: 100%;
-}
-
-.btn-collapse {
-    border: 1px solid #eee;
-    background: white;
-    border-radius: 8px;
-    padding: 2px 8px;
-    color: #adb5bd;
-}
-
+/* Navigasi */
 .nav-link {
     display: flex;
     align-items: center;
@@ -332,38 +243,16 @@ body, html {
     transition: all 0.2s;
 }
 
-.sidebar-collapsed .nav-link {
-    padding: 12px;
-    justify-content: center;
-}
-
 .nav-link.active {
     background-color: #e6f0eb;
     color: var(--dark-green);
     font-weight: 700;
 }
 
-.nav-icon { 
-    min-width: 24px;
-    font-size: 1.1rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.nav-link span {
-    margin-left: 12px;
-    transition: opacity 0.2s;
-}
-
-.sidebar-collapsed .nav-link span {
-    display: none;
-    opacity: 0;
-}
-
+.nav-icon { min-width: 24px; font-size: 1.1rem; text-align: center; }
 .nav-divider { font-size: 0.65rem; font-weight: 800; color: #adb5bd; margin-top: 15px; }
 
-/* BOTTOM NAV (Mobile Only) */
+/* BOTTOM NAV */
 .bottom-nav {
     position: fixed;
     bottom: 0; left: 0; right: 0;
@@ -404,7 +293,13 @@ body, html {
 
 @media (max-width: 768px) {
     .sidebar { display: none !important; }
+    .main-content { 
+        height: auto !important; 
+        overflow-y: visible !important; 
+    }
 }
 
-@media print { .no-print, .sidebar, .bottom-nav, .navbar { display: none !important; } }
+/* Custom Scrollbar */
+.main-content::-webkit-scrollbar { width: 6px; }
+.main-content::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
 </style>
