@@ -39,7 +39,7 @@ const fetchMenus = async () => {
 
 // --- LOGIKA HAPUS & PELUNASAN ---
 const deleteDebt = async (id) => {
-    if(confirm("Hapus permanen catatan ini? Stok tidak akan kembali otomatis.")) {
+    if(confirm("PERINGATAN: Menghapus catatan ini akan menghapus data di Buku Hutang DAN Laporan Penjualan. Lanjutkan?")) {
         await axios.delete(`${API_URL}/debts/${id}`)
         fetchDebts()
     }
