@@ -261,6 +261,13 @@ const saveAsDebt = async () => {
         alert("Gagal simpan! Cek terminal backend.");
     }
 };
+// --- FITUR BARU: HAPUS PERMANEN DARI KERANJANG ---
+const removeFromCart = (index) => {
+    const itemName = cart.value[index].name
+    if (confirm(`Hapus ${itemName} dari pesanan?`)) {
+        cart.value.splice(index, 1)
+    }
+}
 
 onMounted(fetchMenus)
 onUnmounted(stopCamera)
@@ -328,20 +335,37 @@ onUnmounted(stopCamera)
           </div>
 
           <div class="card-body px-3 overflow-auto custom-scroll flex-grow-1">
-            <div v-for="(item, index) in cart" :key="index" class="cart-item mb-2 p-3 bg-light rounded-4">
-                <div class="d-flex justify-content-between fw-bold mb-1">
-                    <span>{{ item.name }}</span>
-                    <span class="accent-text">Rp {{ (item.price * item.qty).toLocaleString() }}</span>
-                </div>
-                <div class="d-flex justify-content-between align-items-center">
-                    <input v-model="item.note" class="note-input small border-0 bg-transparent text-muted" placeholder="Catatan...">
-                    <div class="qty-control bg-white rounded-pill px-2 border">
-                        <button class="btn btn-sm border-0" @click="decreaseQty(index)">-</button>
-                        <span class="px-2 small fw-bold">{{ item.qty }}</span>
-                        <button class="btn btn-sm border-0" @click="item.qty++">+</button>
-                    </div>
+            <div class="card-body px-3 overflow-auto custom-scroll flex-grow-1">
+        <div v-for="(item, index) in cart" :key="index" class="cart-item mb-2 p-3 bg-light rounded-4 position-relative">
+            
+            <button @click="removeFromCart(index)" class="btn-remove-item">
+                <i class="fas fa-times"></i>
+            </button>
+
+            <div class="d-flex justify-content-between fw-bold mb-1 pe-4">
+                <span>{{ item.name }}</span>
+                <span class="accent-text">Rp {{ (item.price * item.qty).toLocaleString() }}</span>
+            </div>
+            
+            <div class="d-flex justify-content-between align-items-center mt-2">
+                <input v-model="item.note" class="note-input small border-0 bg-transparent text-muted" placeholder="Catatan...">
+                
+                <div class="qty-control bg-white rounded-pill px-2 border d-flex align-items-center">
+                    <button class="btn btn-sm border-0 px-2" @click="decreaseQty(index)">
+                        <i class="fas fa-minus small"></i>
+                    </button>
+                    <span class="px-2 small fw-bold">{{ item.qty }}</span>
+                    <button class="btn btn-sm border-0 px-2" @click="item.qty++">
+                        <i class="fas fa-plus small"></i>
+                    </button>
                 </div>
             </div>
+        </div>
+    <div v-if="cart.length === 0" class="text-center py-5 opacity-50">
+        <i class="fas fa-shopping-basket fa-3x mb-3"></i>
+        <p>Keranjang Kosong</p>
+    </div>
+</div>
           </div>
 
           <div class="card-footer p-4 bg-white border-0 shadow-lg" style="border-radius: 30px 30px 0 0;">
@@ -517,4 +541,38 @@ onUnmounted(stopCamera)
 .badge-bar { background: #e6f0eb; color: #2c4a3b; }
 .badge-kitchen { background: #fff4e6; color: #d68c45; }
 #print-area { position: fixed; left: -9999px; }
+/* Style untuk tombol hapus item */
+.btn-remove-item {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    border: none;
+    background: #ffeded;
+    color: #ff5c5c;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    transition: 0.2s;
+}
+
+.btn-remove-item:hover {
+    background: #ff5c5c;
+    color: white;
+}
+
+/* Merapikan input catatan */
+.note-input {
+    width: 60%;
+    outline: none;
+    font-style: italic;
+}
+
+/* Efek transisi saat item dihapus */
+.cart-item {
+    transition: all 0.3s ease;
+}
 </style>
