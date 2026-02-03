@@ -12,6 +12,7 @@ import ExpenseView from '../views/ExpenseView.vue'
 import DebtView from '../views/DebtView.vue'
 import LoginView from '../views/LoginView.vue'
 import PrinterView from '../views/PrinterView.vue' 
+import HistoryView from '../views/HistoryView.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -82,6 +83,12 @@ const router = createRouter({
     component: PrinterView,
     meta: { requiresAuth: true }
     },
+    {
+      path: '/history',
+      name: 'history',
+      component: HistoryView,
+      meta: { requiresAuth: true }
+    }
   ]
 })
 
