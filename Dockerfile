@@ -1,5 +1,6 @@
 FROM node:20-alpine
 
+RUN echo "Setting up Jakarta Timezone"
 # Tambahkan zona waktu
 RUN apk add --no-cache tzdata
 ENV TZ=Asia/Jakarta
