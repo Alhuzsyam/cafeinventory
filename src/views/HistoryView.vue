@@ -122,7 +122,7 @@ onMounted(fetchHistory)
                 </div>
                 
                 <div class="product-summary text-truncate small fw-bold" :class="selectedSale?.id === sale.id ? 'text-white-50' : 'text-purple'">
-                    {{ getProductSummary(sale.items) }}
+                    {{ selectedSale.payment_method }}
                 </div>
 
                 <div class="item-meta mt-1">
