@@ -1,5 +1,9 @@
 FROM node:20-alpine
 
+# Tambahkan zona waktu
+RUN apk add --no-cache tzdata
+ENV TZ=Asia/Jakarta
+
 WORKDIR /app
 
 COPY package.json package-lock.json ./
