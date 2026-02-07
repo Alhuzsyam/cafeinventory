@@ -20,26 +20,38 @@ const tempItems = ref([])
 // --- STATE MODAL PELUNASAN ---
 const showPayModal = ref(false)
 const selectedDebtToPay = ref(null)
-const payMethod = ref('CASH') // Nilai ini yang akan masuk ke DB ('CASH' / 'QRIS')
+const payMethod = ref('CASH')
 
 // --- FETCH DATA ---
 const fetchDebts = async () => {
     try {
         const res = await axios.get(`${API_URL}/debts/`)
         debts.value = res.data
-    } catch (e) { console.error("Gagal load hutang:", e) }
+    } catch (e) { console.error("Gagal load hutang") }
 }
 
 const fetchMenus = async () => {
     try {
         const res = await axios.get(`${API_URL}/menu/`)
         menus.value = res.data
-    } catch (e) { console.error("Gagal load menu:", e) }
+    } catch (e) { console.error("Gagal load menu") }
 }
 
-// --- LOGIKA HAPUS & PELUNASAN ---
+// --- 🔵 LOGIKA: HAPUS ITEM SPESIFIK (DI DALAM KARTU) ---
+const removeDebtItem = async (debtItemId, itemName) => {
+    if(!confirm(`Hapus "${itemName}"? Stok akan dikembalikan ke gudang.`)) return
+    isProcessing.value = true
+    try {
+        await axios.delete(`${API_URL}/debts/items/${debtItemId}`)
+        await fetchDebts() // Refresh data & total amount
+    } catch (e) {
+        alert("Gagal hapus item: " + (e.response?.data?.detail || e.message))
+    } finally { isProcessing.value = false }
+}
+
+// --- LOGIKA: HAPUS TOTAL & PELUNASAN ---
 const deleteDebt = async (id) => {
-    if(confirm("PERINGATAN: Menghapus catatan ini akan menghapus data di Buku Hutang DAN Laporan Penjualan. Lanjutkan?")) {
+    if(confirm("PERINGATAN: Menghapus catatan ini akan menghapus data di Buku Hutang DAN Sales History. Lanjutkan?")) {
         await axios.delete(`${API_URL}/debts/${id}`)
         fetchDebts()
     }
@@ -47,33 +59,28 @@ const deleteDebt = async (id) => {
 
 const openPayModal = (debt) => {
     selectedDebtToPay.value = debt
-    payMethod.value = 'CASH' // Reset ke CASH setiap modal dibuka
+    payMethod.value = 'CASH'
     showPayModal.value = true
 }
 
-// FIX: Pastikan payload dikirim dengan benar ke Backend
 const confirmPelunasan = async () => {
     if(!selectedDebtToPay.value) return
     isProcessing.value = true
     try {
-        // payload { payment_method: "CASH" } atau { payment_method: "QRIS" }
         await axios.put(`${API_URL}/debts/${selectedDebtToPay.value.id}/pay`, {
             payment_method: payMethod.value
         })
-        
-        alert(`Sukses! Hutang ${selectedDebtToPay.value.customer_name} dilunasi via ${payMethod.value}`)
         showPayModal.value = false
         fetchDebts()
-    } catch (e) {
-        console.error(e)
-        alert("Gagal proses pelunasan. Cek koneksi server.")
-    } finally { isProcessing.value = false }
+    } catch (e) { alert("Gagal proses pelunasan") } 
+    finally { isProcessing.value = false }
 }
 
-// --- LOGIKA TAMBAH ITEM (CUSTOM) ---
+// --- 🟢 FIX: LOGIKA TAMBAH ITEM (MODAL) ---
 const openAddModal = (debt) => {
     selectedDebt.value = debt
-    tempItems.value = []
+    tempItems.value = [] // Reset daftar sementara
+    searchQuery.value = "" // Reset pencarian
     showAddModal.value = true
 }
 
@@ -92,18 +99,20 @@ const addToTemp = (menu) => {
 }
 
 const submitAdditionalItems = async () => {
-    if (tempItems.value.length === 0) return
+    if (!selectedDebt.value || tempItems.value.length === 0) return
     isProcessing.value = true
     try {
+        // Kirim ke endpoint POST /debts/{id}/items
         await axios.post(`${API_URL}/debts/${selectedDebt.value.id}/items`, tempItems.value)
-        alert("Hutang diperbarui & stok dipotong!")
+        alert("Item berhasil ditambahkan & stok dipotong!")
         showAddModal.value = false
         fetchDebts()
-    } catch (e) { alert("Gagal menambah item") }
-    finally { isProcessing.value = false }
+    } catch (e) { 
+        alert("Gagal menambah item. Cek koneksi server.")
+    } finally { isProcessing.value = false }
 }
 
-// --- LOGIKA CETAK STRUK BLUETOOTH ---
+// --- LOGIKA CETAK (BLUETOOTH) ---
 const printReceipt = async (debt) => {
     isPrinting.value = true
     try {
@@ -116,18 +125,15 @@ const printReceipt = async (debt) => {
         const characteristic = await service.getCharacteristic('00002af1-0000-1000-8000-00805f9b34fb')
 
         const encoder = new TextEncoder()
-        const init = '\x1B\x40', center = '\x1B\x61\x01', left = '\x1B\x61\x00'
-        const boldOn = '\x1B\x45\x01', boldOff = '\x1B\x45\x00', feed = '\x0A\x0A\x0A'
+        const init = '\x1B\x40', center = '\x1B\x61\x01', left = '\x1B\x61\x00', boldOn = '\x1B\x45\x01', boldOff = '\x1B\x45\x00', feed = '\x0A\x0A\x0A'
 
         let content = init + center + boldOn + "DEGENTONG CAFE\n" + boldOff
         content += "Buku Hutang (Bon)\n--------------------------------\n" + left
         content += `Tgl : ${new Date(debt.created_at).toLocaleString('id-ID')}\n`
         content += `Plg : ${debt.customer_name}\n--------------------------------\n`
-
         debt.items.forEach(i => {
             content += `${i.menu_name}\n${i.quantity} x ${i.price_at_moment.toLocaleString()} = ${(i.quantity * i.price_at_moment).toLocaleString()}\n`
         })
-
         content += "--------------------------------\n" + boldOn
         content += `TOTAL TAGIHAN: Rp ${debt.total_amount.toLocaleString()}\n` + boldOff + feed
 
@@ -144,10 +150,7 @@ const filteredMenus = computed(() => {
     return menus.value.filter(m => m.name.toLowerCase().includes(searchQuery.value.toLowerCase()))
 })
 
-onMounted(() => {
-    fetchDebts()
-    fetchMenus()
-})
+onMounted(() => { fetchDebts(); fetchMenus() })
 </script>
 
 <template>
@@ -157,15 +160,15 @@ onMounted(() => {
             <h4 class="fw-bold brand-text m-0">Buku Hutang</h4>
             <p class="text-muted small">Kelola catatan bon pelanggan</p>
         </div>
-        <button @click="fetchDebts" class="btn btn-sm btn-outline-success rounded-pill px-3 shadow-sm bg-white">
-            <i class="fas fa-sync me-1"></i> Refresh
+        <button @click="fetchDebts" class="btn btn-sm btn-outline-success rounded-pill px-3 shadow-sm bg-white" :disabled="isProcessing">
+            <i class="fas fa-sync me-1" :class="{'fa-spin': isProcessing}"></i> Refresh
         </button>
     </div>
 
     <div class="row g-3">
         <div v-for="debt in debts" :key="debt.id" class="col-md-6 col-lg-4">
             <div class="card border-0 shadow-sm rounded-4 p-4 h-100 bg-white position-relative card-debt">
-                <button @click="deleteDebt(debt.id)" class="btn-delete" title="Hapus Catatan">
+                <button @click="deleteDebt(debt.id)" class="btn-delete" title="Hapus Total">
                     <i class="fas fa-times"></i>
                 </button>
 
@@ -178,20 +181,25 @@ onMounted(() => {
                 <h4 class="fw-bold text-dark mb-3">Rp {{ debt.total_amount.toLocaleString() }}</h4>
 
                 <div class="border-top border-dashed pt-3 flex-grow-1 mb-4">
-                    <div v-for="item in debt.items" :key="item.id" class="d-flex justify-content-between x-small mb-1">
-                        <span>{{ item.menu_name }} x{{ item.quantity }}</span>
+                    <div v-for="item in debt.items" :key="item.id" class="d-flex justify-content-between align-items-center x-small mb-2">
+                        <div class="d-flex align-items-center gap-2">
+                            <button @click="removeDebtItem(item.id, item.menu_name)" class="btn-minus-item" :disabled="isProcessing">
+                                <i class="fas fa-minus-circle"></i>
+                            </button>
+                            <span class="fw-bold">{{ item.menu_name }} x{{ item.quantity }}</span>
+                        </div>
                         <span class="text-muted">Rp {{ (item.quantity * item.price_at_moment).toLocaleString() }}</span>
                     </div>
                 </div>
 
-                <div class="d-flex gap-2">
-                    <button @click="printReceipt(debt)" class="btn btn-outline-dark rounded-pill px-3" :disabled="isPrinting">
+                <div class="card-footer-actions">
+                    <button @click="printReceipt(debt)" class="btn-footer-outline" :disabled="isPrinting">
                         <i class="fas fa-print"></i>
                     </button>
-                    <button @click="openAddModal(debt)" class="btn btn-outline-success rounded-pill flex-grow-1">
-                        <i class="fas fa-plus me-1"></i> Item
+                    <button @click="openAddModal(debt)" class="btn-footer-success">
+                        <i class="fas fa-plus me-1"></i> ITEM
                     </button>
-                    <button @click="openPayModal(debt)" class="btn btn-primary-rounded flex-grow-2">
+                    <button @click="openPayModal(debt)" class="btn-footer-primary">
                         PELUNASAN
                     </button>
                 </div>
@@ -205,9 +213,9 @@ onMounted(() => {
     </div>
 
     <div v-if="showAddModal" class="modal-overlay">
-        <div class="modal-box bg-white p-4 rounded-5 shadow-lg w-100 mx-3" style="max-width: 500px;">
+        <div class="modal-box bg-white p-4 rounded-5 shadow-lg w-100 mx-3" style="max-width: 480px;">
             <div class="d-flex justify-content-between align-items-center mb-3">
-                <h5 class="fw-bold m-0 text-truncate">Tambah Hutang: {{ selectedDebt?.customer_name }}</h5>
+                <h5 class="fw-bold m-0">Tambah: {{ selectedDebt?.customer_name }}</h5>
                 <button class="btn-close" @click="showAddModal = false"></button>
             </div>
 
@@ -216,25 +224,29 @@ onMounted(() => {
                 <input v-model="searchQuery" class="form-control border-0 bg-transparent" placeholder="Cari menu...">
             </div>
             
-            <div class="menu-selection overflow-auto mb-3 border rounded-4 bg-light" style="max-height: 200px;">
-                <div v-for="m in filteredMenus" :key="m.id" @click="addToTemp(m)" class="p-3 border-bottom small cursor-pointer menu-item-row">
+            <div class="menu-selection-scroll mb-3 border rounded-4 bg-light overflow-auto" style="max-height: 220px;">
+                <div v-for="m in filteredMenus" :key="m.id" @click="addToTemp(m)" class="p-3 border-bottom menu-row-action">
                     <div class="d-flex justify-content-between align-items-center">
-                        <span class="fw-bold">{{ m.name }}</span>
-                        <span class="accent-text">Rp {{ m.price.toLocaleString() }}</span>
+                        <div>
+                            <p class="fw-bold m-0 small">{{ m.name }}</p>
+                            <small class="text-muted">Rp {{ m.price.toLocaleString() }}</small>
+                        </div>
+                        <i class="fas fa-plus-circle text-success"></i>
                     </div>
                 </div>
             </div>
 
-            <div v-if="tempItems.length > 0" class="selected-list p-3 bg-success-soft rounded-4 mb-3 border border-success border-opacity-10">
-                <p class="x-small fw-bold text-success text-uppercase mb-2">Ditambahkan:</p>
+            <div v-if="tempItems.length > 0" class="p-3 bg-success-soft rounded-4 mb-3 border border-success border-opacity-10">
+                <p class="x-small fw-bold text-success text-uppercase mb-2">Item Baru:</p>
                 <div v-for="(ti, idx) in tempItems" :key="idx" class="d-flex justify-content-between align-items-center mb-1 small">
                     <span>{{ ti.menu_name }} x{{ ti.quantity }}</span>
-                    <button class="btn btn-sm text-danger p-0" @click="tempItems.splice(idx,1)"><i class="fas fa-minus-circle"></i></button>
+                    <button class="btn btn-sm text-danger p-0" @click="tempItems.splice(idx,1)"><i class="fas fa-times-circle"></i></button>
                 </div>
             </div>
 
-            <button class="btn btn-primary-rounded w-100 py-3 shadow-sm" @click="submitAdditionalItems" :disabled="tempItems.length === 0 || isProcessing">
-                {{ isProcessing ? 'Memproses...' : 'Simpan & Potong Stok' }}
+            <button class="btn btn-footer-primary w-100 py-3 rounded-pill" @click="submitAdditionalItems" :disabled="tempItems.length === 0 || isProcessing">
+                <i v-if="isProcessing" class="fas fa-spinner fa-spin me-2"></i>
+                {{ isProcessing ? 'Menyimpan...' : 'Simpan & Update Watchlist' }}
             </button>
         </div>
     </div>
@@ -242,36 +254,19 @@ onMounted(() => {
     <div v-if="showPayModal" class="modal-overlay">
         <div class="modal-box bg-white p-4 rounded-5 shadow-lg w-100 mx-3" style="max-width: 400px;">
             <div class="text-center mb-4">
-                <div class="icon-circle bg-success-soft text-success mb-3 mx-auto">
-                    <i class="fas fa-hand-holding-usd fa-lg"></i>
-                </div>
                 <h5 class="fw-bold m-0">Konfirmasi Pelunasan</h5>
-                <p class="text-muted small">{{ selectedDebtToPay?.customer_name }} - <span class="fw-bold text-dark">Rp {{ selectedDebtToPay?.total_amount.toLocaleString() }}</span></p>
+                <p class="text-muted small">{{ selectedDebtToPay?.customer_name }}</p>
+                <h4 class="fw-900 text-success">Rp {{ selectedDebtToPay?.total_amount.toLocaleString() }}</h4>
             </div>
 
-            <label class="small fw-bold text-muted mb-2 d-block">Pilih Metode Bayar:</label>
             <div class="d-flex gap-2 mb-4">
-                <button 
-                    class="btn btn-pay-option flex-grow-1" 
-                    :class="{ 'active': payMethod === 'CASH' }" 
-                    @click="payMethod = 'CASH'"
-                >
-                    <i class="fas fa-money-bill-wave"></i>CASH
-                </button>
-                <button 
-                    class="btn btn-pay-option flex-grow-1" 
-                    :class="{ 'active': payMethod === 'QRIS' }" 
-                    @click="payMethod = 'QRIS'"
-                >
-                    <i class="fas fa-qrcode"></i>QRIS
-                </button>
+                <button class="btn-pay-toggle" :class="{ 'active': payMethod === 'CASH' }" @click="payMethod = 'CASH'">CASH</button>
+                <button class="btn-pay-toggle" :class="{ 'active': payMethod === 'QRIS' }" @click="payMethod = 'QRIS'">QRIS</button>
             </div>
 
             <div class="d-flex gap-2">
-                <button class="btn btn-light rounded-pill flex-grow-1 py-2 fw-bold" @click="showPayModal = false" :disabled="isProcessing">BATAL</button>
-                <button class="btn btn-primary-rounded flex-grow-2 py-2 shadow-sm" @click="confirmPelunasan" :disabled="isProcessing">
-                    {{ isProcessing ? '...' : 'PROSES LUNAS' }}
-                </button>
+                <button class="btn btn-light rounded-pill flex-grow-1" @click="showPayModal = false">BATAL</button>
+                <button class="btn btn-footer-primary flex-grow-2" @click="confirmPelunasan">PROSES LUNAS</button>
             </div>
         </div>
     </div>
@@ -279,47 +274,30 @@ onMounted(() => {
 </template>
 
 <style scoped>
-/* Styling sama seperti sebelumnya, pastikan .active pada .btn-pay-option terlihat jelas */
-.brand-text { color: #2c4a3b; }
-.accent-text { color: #84a548; }
-.bg-danger-soft { background-color: #fff5f5; }
+/* --- TATA LETAK FOOTER KARTU (Symmetry Fix) --- */
+.card-footer-actions { display: flex; gap: 8px; width: 100%; margin-top: auto; }
+.card-footer-actions button { 
+    border: none; border-radius: 12px; padding: 12px 5px; 
+    font-weight: 800; font-size: 0.75rem; display: flex; 
+    align-items: center; justify-content: center; transition: 0.2s;
+}
+.btn-footer-outline { flex: 0.5; background: #f8f9fa; color: #333; border: 1px solid #eee !important; }
+.btn-footer-success { flex: 1; background: #f0fdf4; color: #15803d; }
+.btn-footer-primary { flex: 1.5; background: #2c4a3b; color: white; }
+
+/* --- STYLE HAPUS PER ITEM --- */
+.btn-minus-item { background: transparent; border: none; color: #ffcccc; padding: 0; cursor: pointer; transition: 0.2s; }
+.btn-minus-item:hover { color: #dc3545; }
+
+/* --- MODAL & MISC --- */
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; z-index: 2000; }
 .bg-success-soft { background-color: #f0fdf4; }
-
-.btn-primary-rounded { background: #2c4a3b; color: white; border-radius: 50px; border: none; font-weight: bold; transition: 0.2s; }
-.btn-primary-rounded:hover { background: #1e3328; transform: translateY(-2px); }
-
-.card-debt { transition: 0.3s ease; border: 1px solid transparent !important; }
-.card-debt:hover { transform: translateY(-5px); border-color: #e6f0eb !important; box-shadow: 0 10px 25px rgba(44,74,59,0.08) !important; }
-
-.btn-delete { 
-    position: absolute; top: 15px; right: 15px; border: none; background: #f8f9fa; 
-    color: #ccc; border-radius: 50%; width: 28px; height: 28px; font-size: 0.7rem; 
-    display: flex; align-items: center; justify-content: center; transition: 0.3s;
-}
-.btn-delete:hover { color: #dc3545; background: #fff5f5; }
-
-.modal-overlay { 
-    position: fixed; inset: 0; background: rgba(0,0,0,0.4); 
-    backdrop-filter: blur(8px); display: flex; align-items: center; 
-    justify-content: center; z-index: 2000; 
-}
-.icon-circle { width: 50px; height: 50px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
-
-/* Tampilan Tombol Metode Bayar */
-.btn-pay-option {
-    background: #f8f9fa; border: 2px solid #eee; border-radius: 15px; 
-    padding: 12px; font-weight: bold; color: #888; transition: 0.3s;
-}
-.btn-pay-option i { display: block; font-size: 1.2rem; margin-bottom: 5px; }
-.btn-pay-option.active { 
-    background: #e6f0eb; 
-    border-color: #2c4a3b; 
-    color: #2c4a3b; 
-    box-shadow: 0 4px 10px rgba(44,74,59,0.15);
-}
-
-.cursor-pointer { cursor: pointer; }
-.x-small { font-size: 0.75rem; line-height: 1.4; }
-.border-dashed { border-top: 1px dashed #eee !important; }
-.flex-grow-2 { flex-grow: 2; }
+.menu-row-action { cursor: pointer; transition: 0.2s; }
+.menu-row-action:hover { background-color: #e6f7ed; }
+.btn-pay-toggle { flex: 1; border: 2px solid #eee; background: #f8f9fa; padding: 12px; border-radius: 15px; font-weight: bold; color: #888; }
+.btn-pay-toggle.active { border-color: #2c4a3b; background: #e6f0eb; color: #2c4a3b; }
+.card-debt { border: 1px solid #f1f5f2 !important; }
+.border-dashed { border-top: 1px dashed #e2e8f0 !important; }
+.x-small { font-size: 0.75rem; }
+.btn-delete { position: absolute; top: 15px; right: 15px; border: none; background: #f8f9fa; color: #ccc; border-radius: 50%; width: 26px; height: 26px; font-size: 0.65rem; display: flex; align-items: center; justify-content: center; }
 </style>
