@@ -2,47 +2,17 @@
 import { ref, onMounted, computed } from 'vue'
 import axios from 'axios'
 
+// --- KONFIGURASI ---
 const products = ref([])
 const logs = ref([]) 
 const usageReport = ref([]) 
-// const API_URL = "http://127.0.0.1:8000"
 const API_URL = "https://api.inventorycafe.space"
 const searchQuery = ref("")
-const activeTab = ref('logs') // Tab untuk Log/Activity
-const stockTab = ref('low')   // Tab BARU untuk filter Stok (default ke 'low' agar aware)
+const activeTab = ref('logs') 
+const stockTab = ref('low')   
+const isProcessing = ref(false) 
 
-// --- COMPUTED DATA ---
-
-const currentDate = computed(() => {
-  const date = new Date()
-  return date.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
-})
-
-// 1. Base Filter Pencarian (Semua produk yang cocok dengan search)
-const searchResults = computed(() => {
-  if (!searchQuery.value) return products.value
-  return products.value.filter(p => p.name.toLowerCase().includes(searchQuery.value.toLowerCase()))
-})
-
-// 2. Statistik Global (Tetap menggunakan seluruh data products)
-const lowStockItemsGlobal = computed(() => products.value.filter(p => p.current_stock <= p.min_stock_level))
-const readyStockCount = computed(() => products.value.filter(p => p.current_stock > 0).length)
-const stockHealthPercentage = computed(() => {
-  if (products.value.length === 0) return 0
-  return Math.round((readyStockCount.value / products.value.length) * 100)
-})
-
-// 3. Filter Tab Stok (Berdasarkan hasil pencarian)
-const safeStockList = computed(() => searchResults.value.filter(p => p.current_stock > p.min_stock_level))
-const lowStockList = computed(() => searchResults.value.filter(p => p.current_stock <= p.min_stock_level))
-
-// 4. List yang ditampilkan di Grid
-const displayedProducts = computed(() => {
-  return stockTab.value === 'safe' ? safeStockList.value : lowStockList.value
-})
-
-// --- LOGIC ---
-
+// --- LOGIKA DATA ---
 const fetchData = async () => {
   try {
     const pRes = await axios.get(`${API_URL}/products/`)
@@ -59,394 +29,235 @@ const fetchData = async () => {
   }
 }
 
+// 🔵 FUNGSI RESET STOK
+const resetStock = async (product) => {
+  if (!confirm(`Reset stok ${product.name} menjadi 0?`)) return
+  isProcessing.value = true
+  try {
+    await axios.put(`${API_URL}/products/${product.id}/reset-stock`)
+    await fetchData() 
+  } catch (e) {
+    alert("Gagal reset: " + (e.response?.data?.detail || e.message))
+  } finally { isProcessing.value = false }
+}
+
 const getProductImage = (name) => {
   const initial = name.substring(0, 1).toUpperCase()
-  return `https://placehold.co/150x150/f0f2f5/5c5c5c?text=${initial}&font=merriweather`
+  return `https://placehold.co/150x150/f4f4f5/5c5c5c?text=${initial}&font=playfair-display`
 }
+
+// --- COMPUTED DATA ---
+const currentDate = computed(() => {
+  return new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+})
+
+const searchResults = computed(() => {
+  if (!searchQuery.value) return products.value
+  return products.value.filter(p => p.name.toLowerCase().includes(searchQuery.value.toLowerCase()))
+})
+
+const lowStockItemsGlobal = computed(() => products.value.filter(p => p.current_stock <= p.min_stock_level))
+const readyStockCount = computed(() => products.value.filter(p => p.current_stock > 0).length)
+const stockHealthPercentage = computed(() => {
+  if (products.value.length === 0) return 0
+  return Math.round((readyStockCount.value / products.value.length) * 100)
+})
+
+const safeStockList = computed(() => searchResults.value.filter(p => p.current_stock > p.min_stock_level))
+const lowStockList = computed(() => searchResults.value.filter(p => p.current_stock <= p.min_stock_level))
+
+const displayedProducts = computed(() => {
+  return stockTab.value === 'safe' ? safeStockList.value : lowStockList.value
+})
 
 onMounted(fetchData)
 </script>
 
 <template>
   <div class="dashboard-wrapper">
-    
-    <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-5 gap-3">
-      <div>
-        <h2 class="fw-bold text-dark-green m-0">Halo, Barista! 👋</h2>
-        <p class="text-muted m-0 mt-1" style="font-size: 0.95rem;">{{ currentDate }} • Semangat bekerja hari ini!</p>
+    <header class="dashboard-header mb-5">
+      <div class="row align-items-center g-4">
+        <div class="col-md-7">
+          <div class="d-flex align-items-center gap-3">
+            <div class="avatar-circle">☕</div>
+            <div>
+              <h2 class="fw-800 text-dark-green m-0 ls-tight">Halo, Barista!</h2>
+              <p class="text-muted m-0 small fw-600">{{ currentDate }} • <span class="text-success">System Online</span></p>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-5">
+          <div class="search-box">
+            <i class="fas fa-search search-icon"></i>
+            <input v-model="searchQuery" type="text" class="search-input" placeholder="Cari menu atau bahan...">
+          </div>
+        </div>
       </div>
-      
-      <div class="search-wrapper">
-        <span class="search-icon">🔍</span>
-        <input 
-          type="text" 
-          class="form-control search-input" 
-          placeholder="Cari menu kopi atau snack..." 
-          v-model="searchQuery"
-        >
-      </div>
-    </div>
+    </header>
 
     <div class="row g-4 mb-5">
-      <div class="col-md-4">
-        <div class="stat-card bg-sage-light">
+      <div v-for="stat in [
+        {title: 'Total Menu', val: products.length, icon: '📋', bg: 'bg-sage-soft', color: 'text-sage'},
+        {title: 'Ready Stock', val: stockHealthPercentage + '%', icon: '✨', bg: 'bg-cream-soft', color: 'text-brown'},
+        {title: 'Need Restock', val: lowStockItemsGlobal.length, icon: lowStockItemsGlobal.length > 0 ? '⚠️' : '✅', bg: lowStockItemsGlobal.length > 0 ? 'bg-pink-soft' : 'bg-gray-soft', color: lowStockItemsGlobal.length > 0 ? 'text-danger' : 'text-muted'}
+      ]" :key="stat.title" class="col-md-4">
+        <div class="stat-card" :class="stat.bg">
           <div class="d-flex justify-content-between align-items-start">
             <div>
-              <span class="stat-label text-sage-dark">Total Item Terdaftar</span>
-              <h3 class="stat-value text-dark-green">{{ products.length }}</h3>
+              <p class="stat-label mb-1" :class="stat.color">{{ stat.title }}</p>
+              <h2 class="stat-value m-0 fw-800">{{ stat.val }}</h2>
             </div>
-            <div class="icon-circle bg-white text-sage-dark">📝</div>
+            <div class="stat-icon-box">{{ stat.icon }}</div>
           </div>
-          <p class="stat-note text-sage-dark">Database menu & bahan</p>
-        </div>
-      </div>
-
-      <div class="col-md-4">
-        <div class="stat-card bg-cream">
-          <div class="d-flex justify-content-between align-items-start">
-            <div>
-              <span class="stat-label text-brown">Tingkat Ketersediaan</span>
-              <div class="d-flex align-items-baseline gap-2">
-                <h3 class="stat-value text-dark-brown">{{ stockHealthPercentage }}%</h3>
-                <small class="text-muted fw-bold">({{ readyStockCount }}/{{ products.length }} Item)</small>
-              </div>
-            </div>
-            <div class="icon-circle bg-white text-brown">✨</div>
-          </div>
-          <div class="progress mt-3" style="height: 6px; background-color: rgba(138, 112, 68, 0.2);">
-            <div class="progress-bar bg-brown" role="progressbar" 
-              :style="{ width: stockHealthPercentage + '%' }" 
-              :aria-valuenow="stockHealthPercentage" aria-valuemin="0" aria-valuemax="100">
-            </div>
-          </div>
-          <p class="stat-note text-brown mt-2">Bahan siap digunakan</p>
-        </div>
-      </div>
-
-      <div class="col-md-4">
-        <div class="stat-card" :class="lowStockItemsGlobal.length > 0 ? 'bg-soft-pink' : 'bg-soft-gray'">
-          <div class="d-flex justify-content-between align-items-start">
-            <div>
-              <span class="stat-label" :class="lowStockItemsGlobal.length > 0 ? 'text-danger' : 'text-muted'">Perlu Restock</span>
-              <h3 class="stat-value" :class="lowStockItemsGlobal.length > 0 ? 'text-danger' : 'text-dark'">
-                {{ lowStockItemsGlobal.length }} <span class="fs-6 fw-normal">Item</span>
-              </h3>
-            </div>
-            <div class="icon-circle bg-white" :class="lowStockItemsGlobal.length > 0 ? 'text-danger' : 'text-muted'">
-              {{ lowStockItemsGlobal.length > 0 ? '⚠️' : '✅' }}
-            </div>
-          </div>
-          <p class="stat-note" :class="lowStockItemsGlobal.length > 0 ? 'text-danger' : 'text-muted'">
-            {{ lowStockItemsGlobal.length > 0 ? 'Segera lakukan pembelian!' : 'Stok aman terkendali' }}
-          </p>
         </div>
       </div>
     </div>
 
-    <div class="d-flex flex-column flex-sm-row justify-content-between align-items-start align-items-sm-center mb-4 gap-3">
-      <div>
-        <h4 class="fw-bold text-dark-green m-0">Daftar Menu & Stok</h4>
-        <small class="text-muted">Mengelola stok inventory</small>
-      </div>
-
-      <div class="bg-light p-1 rounded-pill d-inline-flex shadow-sm">
-        <button 
-          @click="stockTab = 'low'"
-          class="btn btn-sm rounded-pill px-4 py-2 fw-bold transition-all d-flex align-items-center gap-2"
-          :class="stockTab === 'low' ? 'bg-white shadow-sm text-danger' : 'text-muted border-0'"
-        >
-          <span>⚠️ Menipis</span>
-          <span class="badge rounded-pill" :class="stockTab === 'low' ? 'bg-danger text-white' : 'bg-secondary text-white-50'">
-            {{ lowStockList.length }}
-          </span>
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <h5 class="fw-800 text-dark-green m-0">Inventory List</h5>
+      <div class="tab-control">
+        <button @click="stockTab = 'low'" class="tab-btn" :class="{ 'active text-danger': stockTab === 'low' }">
+          Low Stock <span class="tab-badge bg-danger">{{ lowStockList.length }}</span>
         </button>
-
-        <button 
-          @click="stockTab = 'safe'"
-          class="btn btn-sm rounded-pill px-4 py-2 fw-bold transition-all d-flex align-items-center gap-2"
-          :class="stockTab === 'safe' ? 'bg-white shadow-sm text-dark-green' : 'text-muted border-0'"
-        >
-          <span>✅ Aman</span>
-          <span class="badge rounded-pill" :class="stockTab === 'safe' ? 'bg-success text-white' : 'bg-secondary text-white-50'">
-            {{ safeStockList.length }}
-          </span>
+        <button @click="stockTab = 'safe'" class="tab-btn" :class="{ 'active text-success': stockTab === 'safe' }">
+          Safe Stock <span class="tab-badge bg-success">{{ safeStockList.length }}</span>
         </button>
       </div>
     </div>
 
-    <div class="row g-4 mb-5">
+    <div class="row g-4">
       <div v-if="displayedProducts.length === 0" class="col-12 text-center py-5">
-        <div class="mb-3" style="font-size: 3rem;">
-          {{ stockTab === 'low' ? '🎉' : '🔍' }}
-        </div>
-        <h5 class="text-muted">
-          {{ stockTab === 'low' ? 'Mantap! Tidak ada stok yang menipis.' : 'Tidak ada produk ditemukan.' }}
-        </h5>
+        <div class="empty-icon">🍃</div>
+        <p class="text-muted fw-600">Tidak ada produk dalam kategori ini</p>
       </div>
 
       <div class="col-6 col-md-4 col-lg-3" v-for="product in displayedProducts" :key="product.id">
-        <div class="product-card h-100">
-          <div class="stock-badge shadow-sm" :class="product.current_stock <= product.min_stock_level ? 'bg-danger text-white' : 'bg-white text-dark'">
-            {{ product.current_stock }} <span class="text-muted small" :class="product.current_stock <= product.min_stock_level ? 'text-white-50' : ''">{{ product.unit }}</span>
-          </div>
-
-          <div class="card-body text-center p-3">
-            <img :src="getProductImage(product.name)" class="product-img mb-3" alt="Product">
-            
-            <h6 class="product-name text-truncate" :title="product.name">{{ product.name }}</h6>
-            <p class="product-sku">{{ product.sku }}</p>
-
-            <div class="mt-3">
-              <span v-if="product.current_stock === 0" class="badge bg-secondary text-white rounded-pill px-3">
-                Habis
-              </span>
-              <span v-else-if="product.current_stock <= product.min_stock_level" class="badge bg-soft-pink text-danger rounded-pill px-3">
-                Menipis
-              </span>
-              <span v-else class="badge bg-sage-light text-sage-dark rounded-pill px-3">
-                Tersedia
-              </span>
+        <div class="product-card" :class="{'border-danger-soft': product.current_stock < 0}">
+          
+          <div class="card-float-top">
+            <button v-if="product.current_stock < 0" @click.stop="resetStock(product)" class="btn-reset-fab" title="Reset ke 0">
+              <i class="fas" :class="isProcessing ? 'fa-spinner fa-spin' : 'fa-undo-alt'"></i>
+            </button>
+            <div class="stock-pill shadow-sm" :class="product.current_stock <= product.min_stock_level ? 'bg-danger' : 'bg-dark'">
+              {{ product.current_stock }} <small class="opacity-75">{{ product.unit }}</small>
             </div>
           </div>
-        </div>
-      </div>
-    </div>
 
-    <div class="activity-section p-4 rounded-4 bg-white shadow-sm border-0">
-      <div class="d-flex flex-column flex-sm-row justify-content-between align-items-start align-items-sm-center mb-4 gap-3">
-        <h5 class="fw-bold text-dark-green m-0">
-          {{ activeTab === 'logs' ? '🕒 Aktivitas Terkini' : '📊 Laporan Penggunaan Bahan' }}
-        </h5>
-        
-        <div class="d-flex gap-2">
-          <a 
-            v-if="activeTab === 'usage'"
-            :href="`${API_URL}/inventory/usage-report/export`"
-            target="_blank"
-            class="btn btn-sm btn-success text-white rounded-pill px-3 fw-bold shadow-sm d-flex align-items-center gap-2"
-            style="background-color: #2c4a3b; border: none;"
-          >
-            📥 Download Excel
-          </a>
+          <div class="card-body p-4 text-center">
+            <div class="img-container mb-3">
+              <img :src="getProductImage(product.name)" class="product-img" alt="Product">
+            </div>
+            
+            <h6 class="product-title text-truncate fw-800">{{ product.name }}</h6>
+            <p class="product-sku mb-3">{{ product.sku }}</p>
 
-          <div class="bg-light p-1 rounded-pill d-inline-flex">
-            <button 
-              @click="activeTab = 'logs'"
-              class="btn btn-sm rounded-pill px-3 fw-bold transition-all"
-              :class="activeTab === 'logs' ? 'bg-white shadow-sm text-dark-green' : 'text-muted border-0'"
-            >
-              History Log
-            </button>
-            <button 
-              @click="activeTab = 'usage'"
-              class="btn btn-sm rounded-pill px-3 fw-bold transition-all"
-              :class="activeTab === 'usage' ? 'bg-white shadow-sm text-dark-green' : 'text-muted border-0'"
-            >
-              Akumulasi
-            </button>
+            <div class="status-indicator">
+              <div v-if="product.current_stock < 0" class="status-tag tag-error animate-pulse">Stok Minus</div>
+              <div v-else-if="product.current_stock === 0" class="status-tag tag-empty">Habis</div>
+              <div v-else-if="product.current_stock <= product.min_stock_level" class="status-tag tag-warning">Menipis</div>
+              <div v-else class="status-tag tag-success">Tersedia</div>
+            </div>
           </div>
+
+          <button v-if="product.current_stock < 0" @click="resetStock(product)" class="btn-reset-bottom d-md-none">
+            RESET DATA
+          </button>
         </div>
       </div>
-
-      <div class="table-responsive">
-        <table v-if="activeTab === 'logs'" class="table table-borderless align-middle mb-0">
-          <thead class="text-muted border-bottom">
-            <tr class="small text-uppercase">
-              <th>Waktu</th>
-              <th>Produk</th>
-              <th class="text-center">Perubahan</th>
-              <th class="text-end">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="log in logs" :key="log.id" class="border-bottom-dashed">
-              <td class="text-muted small py-3">{{ new Date(log.created_at).toLocaleTimeString('id-ID', {hour: '2-digit', minute:'2-digit'}) }}</td>
-              <td class="fw-bold text-dark">{{ log.product_name }}</td>
-              <td class="text-center">
-                <span class="badge rounded-pill px-3 fw-normal" 
-                  :class="log.qty_change > 0 ? 'bg-sage-light text-sage-dark' : 'bg-soft-pink text-danger'">
-                  {{ log.qty_change > 0 ? '+' : '' }}{{ log.qty_change }}
-                </span>
-              </td>
-              <td class="text-end">
-                <span class="badge border fw-normal" 
-                  :class="log.transaction_type === 'INBOUND' ? 'border-success text-success bg-white' : 'border-danger text-danger bg-white'">
-                  {{ log.transaction_type }}
-                </span>
-              </td>
-            </tr>
-            <tr v-if="logs.length === 0">
-              <td colspan="4" class="text-center text-muted py-4">Belum ada aktivitas hari ini</td>
-            </tr>
-          </tbody>
-        </table>
-
-        <table v-else class="table table-borderless align-middle mb-0">
-          <thead class="text-muted border-bottom">
-            <tr class="small text-uppercase">
-              <th>Nama Bahan</th>
-              <th class="text-center">Pemakaian Minggu Ini</th>
-              <th class="text-center">Pemakaian Bulan Ini</th>
-              <th class="text-end">Satuan</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="item in usageReport" :key="item.product_id" class="border-bottom-dashed">
-              <td class="fw-bold text-dark py-3">{{ item.product_name }}</td>
-              <td class="text-center"><span class="fw-bold text-dark-green" style="font-size: 1.1rem;">{{ item.weekly_usage }}</span></td>
-              <td class="text-center"><span class="fw-bold text-dark-green" style="font-size: 1.1rem;">{{ item.monthly_usage }}</span></td>
-              <td class="text-end text-muted">{{ item.unit }}</td>
-            </tr>
-            <tr v-if="usageReport.length === 0">
-              <td colspan="4" class="text-center text-muted py-4">Belum ada data penggunaan</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
     </div>
-
   </div>
 </template>
 
 <style scoped>
-/* --- PALET WARNA --- */
-:root {
-  --dark-green: #2c4a3b;
-  --sage-light: #e6f0eb;
-  --sage-dark: #4a7a62;
-  --cream: #fff9e6;
-  --brown: #8a7044;
-  --soft-pink: #ffe6e6;
-}
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap');
 
-.text-dark-green { color: #2c4a3b; }
-.text-sage-dark { color: #4a7a62; }
-.bg-sage-light { background-color: #e6f0eb; }
-.bg-cream { background-color: #fff9e6; }
-.bg-brown { background-color: #8a7044; }
-.text-brown { color: #8a7044; }
-.text-dark-brown { color: #5c4b2e; }
-.bg-soft-pink { background-color: #ffe6e6; }
-.bg-soft-gray { background-color: #f8f9fa; }
-
-/* --- STYLE CSS --- */
+/* --- THEME DESIGN --- */
 .dashboard-wrapper {
-  background-color: #fcfdfc;
+  background-color: #f8faf9;
   min-height: 100vh;
-  font-family: 'Inter', sans-serif;
-  padding-bottom: 50px;
+  padding: 40px 20px;
+  font-family: 'Plus Jakarta Sans', sans-serif;
 }
 
-.transition-all {
-  transition: all 0.3s ease;
+.fw-800 { font-weight: 800; }
+.ls-tight { letter-spacing: -1px; }
+.text-dark-green { color: #1a2e24; }
+
+/* --- HEADER & SEARCH --- */
+.avatar-circle {
+  width: 54px; height: 54px; background: white; 
+  border-radius: 18px; display: flex; align-items: center; 
+  justify-content: center; font-size: 1.5rem; box-shadow: 0 10px 20px rgba(0,0,0,0.04);
 }
 
-/* SEARCH */
-.search-wrapper {
-  position: relative;
-  width: 100%;
-  max-width: 400px;
-}
+.search-box { position: relative; }
 .search-input {
-  border-radius: 50px;
-  border: 1px solid #eee;
-  padding: 12px 20px 12px 45px;
-  background-color: white;
-  box-shadow: 0 4px 15px rgba(0,0,0,0.03);
-  transition: all 0.3s ease;
+  width: 100%; border-radius: 16px; border: 2px solid transparent;
+  padding: 14px 20px 14px 50px; background: white;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.03); transition: 0.3s;
 }
-.search-input:focus {
-  border-color: #b8d0c3;
-  box-shadow: 0 4px 20px rgba(44, 74, 59, 0.1);
-  outline: none;
-}
-.search-icon {
-  position: absolute;
-  left: 18px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: #aaa;
-}
+.search-input:focus { border-color: #84a548; outline: none; box-shadow: 0 10px 30px rgba(132,165,72,0.1); }
+.search-icon { position: absolute; left: 20px; top: 50%; transform: translateY(-50%); color: #cbd5e1; }
 
-/* STATS */
-.stat-card {
-  border-radius: 24px;
-  padding: 24px;
-  height: 100%;
-  border: none;
-  transition: transform 0.2s;
-}
-.stat-card:hover {
-  transform: translateY(-3px);
-}
-.stat-label {
-  font-size: 0.85rem;
-  font-weight: 600;
-  display: block;
-  margin-bottom: 5px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-.stat-value {
-  font-size: 2.2rem;
-  font-weight: 800;
-  margin: 0;
-  line-height: 1;
-}
-.stat-note {
-  font-size: 0.85rem;
-  margin-top: 10px;
-  margin-bottom: 0;
-  opacity: 0.9;
-}
-.icon-circle {
-  width: 45px;
-  height: 45px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.2rem;
-  box-shadow: 0 4px 10px rgba(0,0,0,0.05);
-}
+/* --- STAT CARDS --- */
+.stat-card { border-radius: 24px; padding: 28px; transition: 0.3s; border: 1px solid rgba(0,0,0,0.02); }
+.stat-card:hover { transform: translateY(-5px); }
+.bg-sage-soft { background: #eff6f2; }
+.bg-cream-soft { background: #fefaf2; }
+.bg-pink-soft { background: #fff5f5; }
+.bg-gray-soft { background: #f1f5f9; }
+.stat-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; font-weight: 700; }
+.stat-value { font-size: 2rem; color: #1a2e24; }
+.stat-icon-box { font-size: 1.8rem; opacity: 0.8; }
 
-/* PRODUCT GRID */
+/* --- TAB CONTROL --- */
+.tab-control { background: #e2e8f0; padding: 5px; border-radius: 14px; display: flex; gap: 5px; }
+.tab-btn {
+  border: none; padding: 8px 18px; border-radius: 10px; font-weight: 700;
+  font-size: 0.85rem; color: #64748b; background: transparent; transition: 0.2s;
+}
+.tab-btn.active { background: white; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+.tab-badge { font-size: 0.7rem; color: white; padding: 2px 8px; border-radius: 6px; margin-left: 5px; }
+
+/* --- PRODUCT CARD --- */
 .product-card {
-  background: white;
-  border-radius: 20px;
-  border: 1px solid #f0f0f0;
-  position: relative;
-  transition: all 0.3s ease;
-  overflow: hidden;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.02);
+  background: white; border-radius: 28px; position: relative;
+  transition: 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); overflow: hidden;
+  border: 1px solid #f1f5f9;
 }
-.product-card:hover {
-  transform: translateY(-5px);
-  box-shadow: 0 10px 30px rgba(0,0,0,0.08);
-  border-color: transparent;
-}
-.product-img {
-  width: 80px;
-  height: 80px;
-  border-radius: 50%;
-  object-fit: cover;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-}
-.stock-badge {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  font-size: 0.8rem;
-  font-weight: bold;
-  padding: 6px 12px;
-  border-radius: 20px;
+.product-card:hover { transform: translateY(-10px); box-shadow: 0 25px 50px -12px rgba(0,0,0,0.08); }
+
+.card-float-top {
+  position: absolute; top: 15px; left: 15px; right: 15px;
+  display: flex; justify-content: space-between; align-items: center; z-index: 10;
 }
 
-/* TABLE */
-.border-bottom-dashed {
-  border-bottom: 1px dashed #eee;
+.stock-pill { background: #1a2e24; color: white; padding: 6px 14px; border-radius: 12px; font-weight: 800; font-size: 0.85rem; }
+.btn-reset-fab {
+  width: 36px; height: 36px; border-radius: 12px; border: none;
+  background: #dc3545; color: white; display: flex; align-items: center; justify-content: center;
+  transition: 0.3s;
 }
-.border-bottom-dashed:last-child {
-  border-bottom: none;
+.btn-reset-fab:hover { transform: rotate(-180deg) scale(1.1); background: #a71d2a; }
+
+.img-container {
+  width: 90px; height: 90px; margin: 0 auto; 
+  background: #f8fafc; border-radius: 24px; padding: 10px;
 }
+.product-img { width: 100%; height: 100%; object-fit: contain; border-radius: 18px; }
+
+.product-title { color: #1a2e24; font-size: 1rem; margin-bottom: 2px; }
+.product-sku { color: #94a3b8; font-size: 0.75rem; font-weight: 600; }
+
+.status-tag { display: inline-block; padding: 6px 16px; border-radius: 100px; font-size: 0.75rem; font-weight: 800; }
+.tag-success { background: #f0fdf4; color: #15803d; }
+.tag-warning { background: #fff7ed; color: #c2410c; }
+.tag-empty { background: #f8fafc; color: #64748b; }
+.tag-error { background: #fef2f2; color: #dc2626; }
+
+.btn-reset-bottom { width: 100%; border: none; background: #dc3545; color: white; padding: 12px; font-weight: 800; font-size: 0.8rem; }
+
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+.animate-pulse { animation: pulse 2s infinite; }
+.empty-icon { font-size: 3rem; margin-bottom: 10px; opacity: 0.3; }
 </style>
