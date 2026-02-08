@@ -46,15 +46,14 @@ const fetchQueue = async () => {
     } catch (e) { console.error("Sync Error") }
 }
 
-// --- ACTIONS WRAPPER (WITH INSTANT LOADING & UNIQUE SOUND) ---
+// --- ACTIONS WRAPPER ---
 const handleAction = async (id, actionFn, statusChangeType) => {
     if (processingIds.value.has(id)) return
-    processingIds.value.add(id) // Aktifkan loading instan
+    processingIds.value.add(id) 
     
     try {
         await actionFn(id)
         
-        // Pemicu Suara bell3.mp3 saat beralih ke status DIANTAR (Delivered)
         if (isAudioEnabled.value && statusChangeType === 'to_delivered') {
             deliveredSound.currentTime = 0
             deliveredSound.play().catch(() => {})
@@ -64,7 +63,7 @@ const handleAction = async (id, actionFn, statusChangeType) => {
     } catch (e) { 
         alert("Gagal memperbarui status. Cek koneksi server.") 
     } finally {
-        processingIds.value.delete(id) // Matikan loading
+        processingIds.value.delete(id)
     }
 }
 
@@ -72,8 +71,13 @@ const markAsPrepared = (id) => handleAction(id, (id) => axios.put(`${API_URL}/qu
 const markAsDelivered = (id) => handleAction(id, (id) => axios.put(`${API_URL}/queue/${id}/delivered`), 'to_delivered')
 const markAsServed = (id) => handleAction(id, (id) => axios.put(`${API_URL}/queue/${id}/serve`), 'to_served')
 
-const barQueue = computed(() => queue.value.filter(i => i.division === 'Bar'))
-const kitchenQueue = computed(() => queue.value.filter(i => i.division === 'Kitchen'))
+// --- LOGIKA FILTERING KOTAK TERPISAH ---
+// Kotak Produksi (Hanya yang PENDING)
+const barPending = computed(() => queue.value.filter(i => i.division === 'Bar' && i.status === 'PENDING'))
+const kitchenPending = computed(() => queue.value.filter(i => i.division === 'Kitchen' && i.status === 'PENDING'))
+
+// Kotak Waiters (Siap Antar & OTW Meja)
+const waiterQueue = computed(() => queue.value.filter(i => i.status === 'PREPARED' || i.status === 'DELIVERED'))
 
 onMounted(() => {
     fetchQueue()
@@ -90,7 +94,7 @@ const formatTime = (date) => new Date(date).toLocaleTimeString('id-ID', { hour: 
     <header class="d-flex justify-content-between align-items-center mb-5 px-3">
         <div class="brand-group">
             <h1 class="m-0 fw-bold header-title">Order <span class="text-sage">Monitor</span> 🌿</h1>
-            <p class="text-muted small m-0 letter-spacing-1">REAL-TIME KITCHEN DISPLAY</p>
+            <p class="text-muted small m-0 letter-spacing-1">ZONAL KITCHEN DISPLAY SYSTEM</p>
         </div>
 
         <div class="d-flex gap-3 align-items-center">
@@ -103,8 +107,12 @@ const formatTime = (date) => new Date(date).toLocaleTimeString('id-ID', { hour: 
     </header>
 
     <div class="row g-4 h-100">
-        <div v-for="station in [{name: 'Barista', items: barQueue, icon: 'fa-mug-hot'}, {name: 'Kitchen', items: kitchenQueue, icon: 'fa-utensils'}]" 
-             :key="station.name" class="col-lg-6">
+        <div v-for="station in [
+                {name: 'Barista', items: barPending, icon: 'fa-mug-hot'}, 
+                {name: 'Kitchen', items: kitchenPending, icon: 'fa-utensils'},
+                {name: 'Waiters', items: waiterQueue, icon: 'fa-person-running'}
+             ]" 
+             :key="station.name" class="col-lg-4">
             
             <div class="station-container h-100">
                 <div class="station-header p-4 d-flex justify-content-between align-items-center">
@@ -177,9 +185,9 @@ const formatTime = (date) => new Date(date).toLocaleTimeString('id-ID', { hour: 
 </template>
 
 <style scoped>
+/* STYLE TETAP SAMA SESUAI PERMINTAAN ANDA */
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;600;700;800&display=swap');
 
-/* --- DESIGN SYSTEM --- */
 :root {
     --sage: #84a548;
     --sage-light: #f7fee7;
@@ -190,27 +198,17 @@ const formatTime = (date) => new Date(date).toLocaleTimeString('id-ID', { hour: 
     --note-border: #facc15;
 }
 
-.monitor-container {
-    background-color: #f9fafb;
-    font-family: 'Plus Jakarta Sans', sans-serif;
-    color: #1e293b;
-}
-
+.monitor-container { background-color: #f9fafb; font-family: 'Plus Jakarta Sans', sans-serif; color: #1e293b; }
 .text-sage { color: #84a548; }
 .header-title { font-weight: 800; letter-spacing: -1.5px; font-size: 2.2rem; }
 .uppercase-spaced { text-transform: uppercase; letter-spacing: 2px; font-size: 0.75rem; }
 .letter-spacing-1 { letter-spacing: 2px; font-weight: 700; color: #94a3b8; }
 
-/* --- STATION LAYOUT --- */
 .station-container { background: #f1f5f9; border-radius: 32px; display: flex; flex-direction: column; overflow: hidden; height: calc(100vh - 180px); }
 .icon-circle { width: 45px; height: 45px; background: white; border-radius: 14px; display: flex; align-items: center; justify-content: center; color: #84a548; font-size: 1.2rem; }
 .count-pill { background: #1e293b; color: white; padding: 6px 16px; border-radius: 100px; font-weight: 800; font-size: 0.8rem; }
 
-/* --- ELEGANT CARD --- */
-.elegant-card {
-    background: white; border-radius: 28px; margin-bottom: 16px; display: flex; 
-    padding: 24px; transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); border: 2px solid transparent;
-}
+.elegant-card { background: white; border-radius: 28px; margin-bottom: 16px; display: flex; padding: 24px; transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); border: 2px solid transparent; }
 .elegant-card:hover { transform: translateY(-5px); box-shadow: 0 20px 40px -10px rgba(0,0,0,0.05) !important; }
 
 .status-prepared { border-color: #84a548; background: #f7fee7; }
@@ -223,25 +221,11 @@ const formatTime = (date) => new Date(date).toLocaleTimeString('id-ID', { hour: 
 .customer-pill { background: #f1f5f9; padding: 4px 12px; border-radius: 10px; font-weight: 700; font-size: 0.85rem; color: #64748b; }
 .quantity-pill { color: #84a548; font-weight: 800; font-size: 1.4rem; }
 
-/* --- NEW YELLOW QUOTE NOTE --- */
-.quote-note {
-    background-color: #fffce8;
-    border: 2px dashed #facc15;
-    border-radius: 16px;
-    padding: 12px 18px;
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    max-width: 90%;
-}
+.quote-note { background-color: #fffce8; border: 2px dashed #facc15; border-radius: 16px; padding: 12px 18px; display: inline-flex; align-items: center; gap: 10px; max-width: 90%; }
 .quote-icon { color: #eab308; font-size: 0.9rem; align-self: flex-start; margin-top: 4px; }
 .note-text { color: #854d0e; font-weight: 700; font-style: italic; font-size: 0.9rem; line-height: 1.4; }
 
-/* --- BUTTONS --- */
-.btn-main-action {
-    width: 65px; height: 65px; border-radius: 22px; border: none; background: #1e293b;
-    color: white; font-size: 1.6rem; transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1); display: flex; align-items: center; justify-content: center;
-}
+.btn-main-action { width: 65px; height: 65px; border-radius: 22px; border: none; background: #1e293b; color: white; font-size: 1.6rem; transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1); display: flex; align-items: center; justify-content: center; }
 .btn-main-action:hover:not(:disabled) { transform: scale(1.1) rotate(5deg); }
 .btn-main-action.prepared { background: #84a548; }
 .btn-main-action.delivered { background: #3b82f6; }
@@ -249,13 +233,11 @@ const formatTime = (date) => new Date(date).toLocaleTimeString('id-ID', { hour: 
 .btn-audio-toggle { background: white; border: 1px solid #f1f5f9; border-radius: 100px; padding: 10px 24px; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 10px; transition: 0.3s; }
 .btn-audio-toggle.muted { color: #ef4444; border-color: #fecaca; background: #fff1f2; }
 
-/* --- STATUS TAGS --- */
 .tag { padding: 5px 14px; border-radius: 100px; font-weight: 800; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px; }
 .tag-pending { background: #fef3c7; color: #d97706; }
 .tag-prepared { background: #dcfce7; color: #166534; }
 .tag-delivered { background: #dbeafe; color: #1e40af; }
 
-/* --- ANIMATIONS --- */
 @keyframes fa-spin { to { transform: rotate(360deg); } }
 .fa-spinner-third { animation: fa-spin 0.8s linear infinite; }
 .animate-pulse { animation: pulse 2s infinite; }
