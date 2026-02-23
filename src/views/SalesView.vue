@@ -12,6 +12,7 @@ const searchQuery = ref("")
 const isProcessing = ref(false)
 const isPrinting = ref(false) 
 const customerName = ref("")
+const tableNumber = ref("")
 const discountPercent = ref(0)
 const paymentMethod = ref('cash')
 const cashAmount = ref(0) 
@@ -70,6 +71,7 @@ const printReceiptBluetooth = async () => {
         content += `ID  : ${sale.id}\n`
         content += `Tgl : ${sale.date}\n`
         content += `Plg : ${sale.customer_name}\n`
+        content += `Meja: ${sale.table_number}\n`
         content += `Byr : ${sale.payment_method}\n`
         content += "--------------------------------\n"
 
@@ -174,6 +176,7 @@ const checkout = async () => {
     try {
         const payload = {
             customer_name: customerName.value || "Guest",
+            table_number: tableNumber.value || "Take Away",
             payment_method: paymentMethod.value.toUpperCase(),
             items: cart.value.map(i => ({ menu_item_id: i.menu_id, quantity: i.qty, note: i.note }))
         }
@@ -209,7 +212,7 @@ const saveAsDebt = async () => {
     finally { isProcessing.value = false }
 }
 
-const resetPOS = () => { cart.value = []; customerName.value = ""; cashAmount.value = 0; discountPercent.value = 0 }
+const resetPOS = () => { cart.value = []; customerName.value = "";tableNumber.value = ""; cashAmount.value = 0; discountPercent.value = 0 }
 
 onMounted(fetchMenus)
 onUnmounted(stopCamera)
@@ -292,9 +295,13 @@ onUnmounted(stopCamera)
             <h2 class="sidebar-title">My Order</h2>
             <button class="btn-reset" @click="resetPOS"><i class="fa-solid fa-rotate-left"></i></button>
           </div>
-          <div class="customer-input shadow-xs">
+          <div class="customer-input shadow-xs mb-2">
             <i class="fa-solid fa-circle-user text-sage"></i>
             <input v-model="customerName" placeholder="Customer Name...">
+          </div>
+          <div class="customer-input shadow-xs">
+            <i class="fa-solid fa-chair text-sage"></i>
+            <input v-model="tableNumber" placeholder="Meja" type="text">
           </div>
         </div>
 

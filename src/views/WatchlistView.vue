@@ -143,6 +143,15 @@ const formatTime = (date) => new Date(date).toLocaleTimeString('id-ID', { hour: 
                                     <span class="quantity-pill">x{{ item.quantity }}</span>
                                 </div>
 
+                                <!-- <span class="table-pill">
+                                    <i class="fa-solid fa-chair me-2"></i>Meja: <b class="text-sage">{{ item.table_number || '-' }}</b>
+                                </span> -->
+
+                                <div class="card-footer-info d-flex align-items-center gap-3 mt-1">
+                                    <span class="customer-pill"><i class="fa-solid fa-chair me-2"></i>Meja :</span>
+                                    <span class="quantity-pill">x{{ item.table_number }}</span>
+                                </div>
+
                                 <div v-if="item.note" class="quote-note shadow-sm mt-3">
                                     <i class="fa-solid fa-quote-left quote-icon"></i>
                                     <span class="note-text">{{ item.note }}</span>
@@ -220,7 +229,17 @@ const formatTime = (date) => new Date(date).toLocaleTimeString('id-ID', { hour: 
 .menu-title { font-weight: 800; font-size: 1.6rem; color: #1e293b; margin: 4px 0; letter-spacing: -0.5px; }
 .customer-pill { background: #f1f5f9; padding: 4px 12px; border-radius: 10px; font-weight: 700; font-size: 0.85rem; color: #64748b; }
 .quantity-pill { color: #84a548; font-weight: 800; font-size: 1.4rem; }
-
+.table-pill {
+    background: #ffffff;
+    border: 1.5px solid #e2e8f0;
+    padding: 4px 12px;
+    border-radius: 10px;
+    font-weight: 700;
+    font-size: 0.85rem;
+    color: #475569;
+    display: flex;
+    align-items: center;
+}
 .quote-note { background-color: #fffce8; border: 2px dashed #facc15; border-radius: 16px; padding: 12px 18px; display: inline-flex; align-items: center; gap: 10px; max-width: 90%; }
 .quote-icon { color: #eab308; font-size: 0.9rem; align-self: flex-start; margin-top: 4px; }
 .note-text { color: #854d0e; font-weight: 700; font-style: italic; font-size: 0.9rem; line-height: 1.4; }
