@@ -13,6 +13,7 @@ import DebtView from '../views/DebtView.vue'
 import LoginView from '../views/LoginView.vue'
 import PrinterView from '../views/PrinterView.vue' 
 import HistoryView from '../views/HistoryView.vue'
+import ReservationView from '../views/ReservationView.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -88,6 +89,12 @@ const router = createRouter({
       name: 'history',
       component: HistoryView,
       meta: { requiresAuth: true }
+    },
+    {
+      path: '/reservations',
+      name: 'reservations',
+      component: ReservationView,
+      meta: { requiresAuth: true } 
     }
   ]
 })

@@ -10,13 +10,12 @@ const searchQuery = ref("")
 const filterDate = ref(new Date().toISOString().substr(0, 10))
 const isPrinting = ref(false)
 
-// --- FETCH DATA (Memanfaatkan hasil JOIN dari Backend) ---
+// --- FETCH DATA ---
 const fetchHistory = async () => {
     try {
         const res = await axios.get(`${API_URL}/sales/history`, {
             params: { search: searchQuery.value, date: filterDate.value }
         })
-        console.log(res);
         sales.value = res.data
         // Pilih otomatis transaksi pertama jika ada
         if (sales.value.length > 0 && !selectedSale.value) {
@@ -29,11 +28,22 @@ const selectSale = (sale) => {
     selectedSale.value = sale
 }
 
-// --- HELPER: RINGKASAN NAMA ITEM UNTUK DAFTAR KIRI ---
-const getProductSummary = (items) => {
-    if (!items || items.length === 0) return "Tanpa item";
-    // Mengambil menu_item.name (Hasil Eager Loading/JOIN di Backend)
-    return items.map(i => i.menu_item?.name || 'Menu').join(", ")
+// --- HELPER: HITUNG SUBTOTAL ---
+const hitungSubtotal = (sale) => {
+    if (!sale.items || sale.items.length === 0) return 0;
+    return sale.items.reduce((total, item) => total + (item.quantity * item.price_at_moment), 0);
+}
+
+// --- HELPER: EKSTRAK INFO DP DARI NAMA ---
+// Memisahkan "Pelunasan: Alfi | DP: QRIS" menjadi nama dan metode DP
+const getCustomerInfo = (rawName) => {
+    if (!rawName.includes('Pelunasan')) return { name: rawName, dpMethod: '' };
+    
+    const parts = rawName.split('|');
+    const name = parts[0].replace('Pelunasan:', '').trim();
+    const dpMethod = parts.length > 1 ? parts[1].replace('DP:', '').trim() : 'Sistem Lama';
+    
+    return { name, dpMethod };
 }
 
 // --- LOGIKA CETAK ULANG (REPRINT) ---
@@ -52,22 +62,44 @@ const reprintReceipt = async (sale) => {
         const init = '\x1B\x40', center = '\x1B\x61\x01', left = '\x1B\x61\x00'
         const boldOn = '\x1B\x45\x01', boldOff = '\x1B\x45\x00', feed = '\x0A\x0A\x0A'
 
+        const custInfo = getCustomerInfo(sale.customer_name);
+
         let content = init + center + boldOn + "DEGENTONG CAFE\n" + boldOff
         content += "(REPRINT STRUK)\n"
         content += "--------------------------------\n" + left
         content += `ID  : TRX-${sale.id}\n`
         content += `Tgl : ${new Date(sale.transaction_date).toLocaleString('id-ID')}\n`
-        content += `Plg : ${sale.customer_name}\n`
-        content += `Byr : ${sale.payment_method}\n`
+        content += `Plg : ${custInfo.name}\n`
         content += "--------------------------------\n"
 
-        sale.items.forEach(item => {
-            content += `${item.menu_item?.name || 'Menu'}\n`
-            content += `${item.quantity} x ${item.price_at_moment.toLocaleString()} = ${(item.quantity * item.price_at_moment).toLocaleString()}\n`
-        })
+        // Cetak daftar barang (jika ada)
+        if (sale.items && sale.items.length > 0) {
+            sale.items.forEach(item => {
+                content += `${item.menu_item?.name || 'Menu'}\n`
+                content += `${item.quantity} x ${item.price_at_moment.toLocaleString()} = ${(item.quantity * item.price_at_moment).toLocaleString()}\n`
+            })
+            content += "--------------------------------\n"
+        }
 
-        content += "--------------------------------\n" + boldOn
-        content += `TOTAL: Rp ${sale.total_amount.toLocaleString()}\n` + boldOff + feed
+        const subtotal = hitungSubtotal(sale);
+
+        // LOGIKA STRUK DINAMIS (Cetak Metode Pembayaran Spesifik)
+        if (sale.customer_name.includes('Pelunasan')) {
+            const dp = subtotal - sale.total_amount;
+            content += `Subtotal: Rp ${subtotal.toLocaleString()}\n`
+            // Tampilkan Metode DP
+            content += `DP (${custInfo.dpMethod}) : -Rp ${dp.toLocaleString()}\n`
+            // Tampilkan Metode Lunas
+            content += boldOn + `LUNAS (${sale.payment_method}): Rp ${sale.total_amount.toLocaleString()}\n` + boldOff
+        } 
+        else if (sale.customer_name.includes('DP Reservasi')) {
+            content += boldOn + `DP MASUK (${sale.payment_method}): Rp ${sale.total_amount.toLocaleString()}\n` + boldOff
+        } 
+        else {
+            content += boldOn + `TOTAL (${sale.payment_method}): Rp ${sale.total_amount.toLocaleString()}\n` + boldOff
+        }
+
+        content += feed
 
         const dataArray = encoder.encode(content)
         for (let i = 0; i < dataArray.length; i += 20) {
@@ -122,12 +154,13 @@ onMounted(fetchHistory)
                 </div>
                 
                 <div class="product-summary text-truncate small fw-bold" :class="selectedSale?.id === sale.id ? 'text-white-50' : 'text-purple'">
+                    <i v-if="sale.customer_name.includes('Pelunasan')" class="fa-solid fa-flag-checkered me-1"></i>
                     {{ sale.payment_method }}
                 </div>
 
                 <div class="item-meta mt-1">
                     {{ new Date(sale.transaction_date).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }) }} 
-                    • By {{ sale.customer_name }}
+                    • {{ getCustomerInfo(sale.customer_name).name }}
                 </div>
               </div>
             </div>
@@ -159,7 +192,7 @@ onMounted(fetchHistory)
                     </div>
                     <div class="activity-content">
                         <div class="activity-text">
-                            <strong>{{ selectedSale.customer_name }}</strong> membuat pesanan baru
+                            <strong>{{ getCustomerInfo(selectedSale.customer_name).name }}</strong> membuat pesanan
                         </div>
                         <div class="activity-time">{{ new Date(selectedSale.transaction_date).toLocaleTimeString() }}</div>
                     </div>
@@ -182,10 +215,41 @@ onMounted(fetchHistory)
                         <i class="fas fa-check text-info"></i>
                     </div>
                     <div class="activity-content">
-                        <div class="activity-text">
-                            Pembayaran diselesaikan via <strong>{{ selectedSale.payment_method }}</strong>
+                        
+                        <div v-if="selectedSale.customer_name.includes('Pelunasan')" class="bg-light-gray p-3 rounded-3 mt-2 border">
+                            <p class="text-danger fw-bold m-0 mb-2 small">
+                                <i class="fa-solid fa-circle-info me-1"></i> Rincian Pelunasan Reservasi
+                            </p>
+                            <div class="d-flex justify-content-between small text-muted mb-1">
+                                <span>Total Harga Menu:</span>
+                                <span>Rp {{ hitungSubtotal(selectedSale).toLocaleString('id-ID') }}</span>
+                            </div>
+                            
+                            <div class="d-flex justify-content-between small text-success fw-bold mb-2 pb-2 border-bottom">
+                                <span>DP Sebelumnya ({{ getCustomerInfo(selectedSale.customer_name).dpMethod }}):</span>
+                                <span>- Rp {{ (hitungSubtotal(selectedSale) - selectedSale.total_amount).toLocaleString('id-ID') }}</span>
+                            </div>
+                            
+                            <div class="d-flex justify-content-between fw-900 text-dark">
+                                <span>Lunas Hari Ini ({{ selectedSale.payment_method }}):</span>
+                                <span class="text-danger">Rp {{ selectedSale.total_amount.toLocaleString('id-ID') }}</span>
+                            </div>
                         </div>
-                        <div class="activity-time fw-bold text-dark fs-5">Total Transaksi: Rp {{ selectedSale.total_amount.toLocaleString() }}</div>
+
+                        <div v-else-if="selectedSale.customer_name.includes('DP Reservasi')" class="bg-light-gray p-2 rounded-2 mt-2 border-dashed">
+                            <p class="text-success fw-bold m-0 small">
+                                <i class="fa-solid fa-money-bill-wave me-1"></i> Uang Muka (DP) Masuk
+                            </p>
+                            <p class="text-dark m-0 fw-bold">Nominal ({{ selectedSale.payment_method }}): Rp {{ selectedSale.total_amount.toLocaleString('id-ID') }}</p>
+                        </div>
+
+                        <div v-else>
+                            <div class="activity-text">
+                                Pembayaran diselesaikan via <strong>{{ selectedSale.payment_method }}</strong>
+                            </div>
+                            <div class="activity-time fw-bold text-dark fs-5 mt-2">Total Transaksi: Rp {{ selectedSale.total_amount.toLocaleString() }}</div>
+                        </div>
+
                     </div>
                 </div>
             </div>
@@ -273,6 +337,7 @@ onMounted(fetchHistory)
 }
 .btn-reprint:hover { background: #2c4a3b; color: white; border-color: #2c4a3b; }
 
+.border-dashed { border: 1px dashed #cbd5e1; }
 .custom-scroll { max-height: 600px; overflow-y: auto; }
 .x-small { font-size: 0.7rem; }
 </style>

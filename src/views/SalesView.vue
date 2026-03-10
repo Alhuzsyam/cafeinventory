@@ -21,6 +21,13 @@ const cashAmount = ref(0)
 const showSuccessModal = ref(false)
 const lastTransaction = ref(null)
 
+// --- STATE RESERVASI (TAMBAHKAN INI) ---
+const showReservationModal = ref(false)
+const reservationDate = ref("")
+const dpAmount = ref(0)
+const dpMethod = ref("QRIS")
+
+
 // --- STATE KAMERA & AI SCAN ---
 const videoRef = ref(null)
 const canvasRef = ref(null)
@@ -211,11 +218,59 @@ const saveAsDebt = async () => {
     } catch (e) { console.error(e) }
     finally { isProcessing.value = false }
 }
+// --- FUNGSI SUBMIT RESERVASI (TAMBAHKAN INI) ---
+const submitReservation = async () => {
+    if (!customerName.value) return alert("Nama pelanggan wajib diisi untuk Reservasi!")
+    if (!reservationDate.value) return alert("Pilih tanggal & jam kedatangan!")
+    
+    isProcessing.value = true
+    try {
+        const payload = {
+            customer_name: customerName.value,
+            table_number: tableNumber.value || "TBD",
+            reservation_date: new Date(reservationDate.value).toISOString(),
+            total_amount: finalTotal.value,
+            dp_amount: dpAmount.value,
+            dp_method: dpMethod.value,
+            items: cart.value.map(i => ({ 
+                menu_item_id: i.menu_id || i.id, 
+                menu_name: i.name,
+                quantity: i.qty, 
+                price_at_moment: i.price,
+                note: i.note || "" 
+            }))
+        }
+        await axios.post(`${API_URL}/reservations/`, payload)
+        
+        alert("📝 Reservasi berhasil dicatat! (Belum masuk ke Dapur)")
+        showReservationModal.value = false
+        resetPOS()
+    } catch (e) { 
+        alert("Gagal mencatat reservasi. Cek koneksi server.") 
+        console.error(e)
+    } finally { 
+        isProcessing.value = false 
+    }
+}
 
-const resetPOS = () => { cart.value = []; customerName.value = "";tableNumber.value = ""; cashAmount.value = 0; discountPercent.value = 0 }
+const resetPOS = () => { 
+    cart.value = []; 
+    customerName.value = "";
+    tableNumber.value = ""; 
+    cashAmount.value = 0; 
+    discountPercent.value = 0;
+    
+    // Reset state reservasi juga
+    reservationDate.value = "";
+    dpAmount.value = 0;
+}
+
+// const resetPOS = () => { cart.value = []; customerName.value = "";tableNumber.value = ""; cashAmount.value = 0; discountPercent.value = 0 }
 
 onMounted(fetchMenus)
 onUnmounted(stopCamera)
+
+
 </script>
 
 <template>
@@ -363,6 +418,9 @@ onUnmounted(stopCamera)
             <button class="btn-coral shadow-lg" @click="checkout" :disabled="isProcessing || cart.length === 0">
                <i v-if="isProcessing" class="fa-solid fa-spinner fa-spin me-2"></i> PLACE ORDER
             </button>
+            <button class="btn-outline-coral" @click="showReservationModal = true" :disabled="cart.length === 0">
+                <i class="fa-regular fa-calendar-check me-2"></i> RESERVASI
+            </button>
           </div>
         </div>
       </aside>
@@ -400,6 +458,41 @@ onUnmounted(stopCamera)
             </div>
         </div>
     </div>
+    <div v-if="showReservationModal" class="modal-backdrop">
+    <div class="modal-content animate-up shadow-2xl">
+        <h3 class="fw-800 text-dark mb-4">Buat Reservasi</h3>
+        
+        <div class="text-start mb-3">
+            <label class="fw-bold small text-muted">Tanggal & Jam Kedatangan</label>
+            <input type="datetime-local" v-model="reservationDate" class="form-control shadow-xs mt-1">
+        </div>
+
+        <div class="text-start mb-3">
+            <label class="fw-bold small text-muted">Total Belanja</label>
+            <h4 class="fw-bold text-sage">Rp{{ finalTotal.toLocaleString() }}</h4>
+        </div>
+
+        <div class="text-start mb-3">
+            <label class="fw-bold small text-muted">Jumlah DP (Bisa 0)</label>
+            <input type="number" v-model.number="dpAmount" class="form-control shadow-xs mt-1" placeholder="Masukkan nominal DP">
+        </div>
+
+        <div class="text-start mb-4" v-if="dpAmount > 0">
+            <label class="fw-bold small text-muted">Metode DP</label>
+            <div class="pay-method-pill shadow-xs mt-1">
+              <button :class="{ active: dpMethod === 'CASH' }" @click="dpMethod = 'CASH'">CASH</button>
+              <button :class="{ active: dpMethod === 'QRIS' }" @click="dpMethod = 'QRIS'">QRIS</button>
+          </div>
+        </div>
+
+        <div class="d-flex gap-2">
+            <button class="btn-secondary-modal w-50" @click="showReservationModal = false">BATAL</button>
+            <button class="btn-coral w-50" @click="submitReservation" :disabled="isProcessing">
+                <i v-if="isProcessing" class="fa-solid fa-spinner fa-spin"></i> SIMPAN DP
+            </button>
+        </div>
+    </div>
+</div>
   </div>
 </template>
 

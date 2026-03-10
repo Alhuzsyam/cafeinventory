@@ -50,6 +50,10 @@ const toggleSidebar = () => {
           <i class="fa-solid fa-book-bookmark nav-icon"></i>
           <span v-if="!isCollapsed">Buku Hutang</span>
         </RouterLink>
+         <RouterLink to="/reservations" class="nav-link" active-class="active" title="Reservasi">
+          <i class="fa-regular fa-calendar-check nav-icon"></i>
+          <span v-if="!isCollapsed">Reservasi Meja</span>
+        </RouterLink>
         <RouterLink to="/history" class="nav-link" active-class="active" title="Buku Hutang">
           <i class="fa-solid fa-clock-rotate-left"></i>
           <span v-if="!isCollapsed"> Riwayat Transaksi</span>
@@ -78,6 +82,7 @@ const toggleSidebar = () => {
           <i class="fa-solid fa-wallet nav-icon"></i>
           <span v-if="!isCollapsed">Pengeluaran</span>
         </RouterLink>
+       
         
         <div class="nav-divider mt-3 mb-2 px-3 text-muted" v-if="!isCollapsed">LAINNYA</div>
         <hr v-else class="my-3 mx-2">
