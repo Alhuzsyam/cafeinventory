@@ -155,6 +155,20 @@ const sendToPrinter = async (content) => {
     }
 }
 
+// --- FUNGSI HELPER: GROUPING ITEM ---
+const groupItems = (items) => {
+    if (!items) return []
+    const grouped = {}
+    items.forEach(item => {
+        if (grouped[item.menu_name]) {
+            grouped[item.menu_name].quantity += item.quantity
+        } else {
+            grouped[item.menu_name] = { ...item }
+        }
+    })
+    return Object.values(grouped)
+}
+
 // --- 🖨️ CETAK 1: STRUK BUKTI DP ---
 const printDPReceipt = async (res) => {
     const init = '\x1B\x40', center = '\x1B\x61\x01', left = '\x1B\x61\x00'
@@ -167,8 +181,11 @@ const printDPReceipt = async (res) => {
     content += `Tgl Datang: ${formatDate(res.reservation_date)}\n`
     content += "--------------------------------\n"
 
-    if (res.items && res.items.length > 0) {
-        res.items.forEach(item => {
+    // Menggunakan Item yang sudah di-group
+    const groupedItems = groupItems(res.items)
+
+    if (groupedItems.length > 0) {
+        groupedItems.forEach(item => {
             content += `${item.menu_name}\n`
             content += `${item.quantity} x ${item.price_at_moment.toLocaleString()} = ${(item.quantity * item.price_at_moment).toLocaleString()}\n`
         })
@@ -192,15 +209,26 @@ const printOrderList = async (res) => {
     content += `Plg: ${res.customer_name}\n`
     content += "--------------------------------\n" + left
 
-    if (res.items && res.items.length > 0) {
-        res.items.forEach(item => {
+    // Menggunakan Item yang sudah di-group
+    const groupedItems = groupItems(res.items)
+
+    if (groupedItems.length > 0) {
+        groupedItems.forEach(item => {
             content += `${item.quantity}x ${item.menu_name}\n`
+            if (item.note && item.note.trim() !== '') {
+                 content += `   *Catatan: ${item.note}\n`
+            }
         })
     }
     content += "--------------------------------\n" + feed
     
     await sendToPrinter(content)
 }
+
+// Computasi untuk Grouping List di Layar (Modal Detail)
+const detailGroupedItems = computed(() => {
+    return groupItems(selectedRes.value?.items)
+})
 
 onMounted(fetchReservations)
 const formatDate = (dateStr) => new Date(dateStr).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })
@@ -263,11 +291,11 @@ const formatDate = (dateStr) => new Date(dateStr).toLocaleString('id-ID', { date
             <h4 class="fw-800 text-dark mb-4">Rincian Pesanan</h4>
             <div class="bg-light-gray p-3 rounded-3 mb-4 text-start">
                 <ul class="list-unstyled custom-scroll m-0" style="max-height: 250px; overflow-y: auto;">
-                    <li v-for="item in selectedRes?.items" :key="item.id" class="d-flex justify-content-between mb-2 border-bottom-dashed pb-1">
+                    <li v-for="item in detailGroupedItems" :key="item.menu_item_id" class="d-flex justify-content-between mb-2 border-bottom-dashed pb-1">
                         <span><b class="text-sage">{{ item.quantity }}x</b> {{ item.menu_name }}</span>
                         <span class="text-muted small">Rp{{ (item.price_at_moment * item.quantity).toLocaleString() }}</span>
                     </li>
-                    <li v-if="!selectedRes?.items || selectedRes.items.length === 0" class="text-center text-muted py-3">
+                    <li v-if="detailGroupedItems.length === 0" class="text-center text-muted py-3">
                         Daftar pesanan tidak ditemukan di sistem.
                     </li>
                 </ul>
@@ -278,7 +306,7 @@ const formatDate = (dateStr) => new Date(dateStr).toLocaleString('id-ID', { date
             </div>
             <div class="d-flex gap-2">
                 <button class="btn-secondary-modal w-50" @click="showDetailModal = false">TUTUP</button>
-                <button class="btn-coral w-50" @click="printOrderList(selectedRes)" :disabled="isPrinting || !selectedRes?.items?.length">
+                <button class="btn-coral w-50" @click="printOrderList(selectedRes)" :disabled="isPrinting || detailGroupedItems.length === 0">
                    <i v-if="isPrinting" class="fa-solid fa-spinner fa-spin me-2"></i> PRINTER LIST
                 </button>
             </div>
