@@ -261,7 +261,10 @@ const formatDate = (dateStr) => new Date(dateStr).toLocaleString('id-ID', { date
                         <span>Total Bill</span><span>Rp{{ res.total_amount.toLocaleString() }}</span>
                     </div>
                     <div class="d-flex justify-content-between mb-1 small text-success">
-                        <span>DP</span><span>Rp{{ res.dp_method.toLocaleString() }}</span>
+                        <span>DP</span><span>{{ res.dp_method.toLocaleString() }}</span>
+                    </div>
+                    <div class="d-flex justify-content-between mb-1 small text-success">
+                        <span>Total DP</span><span>RP{{ res.dp_amount.toLocaleString() }}</span>
                     </div>
                     <div class="d-flex justify-content-between fw-900 text-danger pt-1">
                         <span>Sisa Bayar</span><span>Rp{{ (res.total_amount - res.dp_amount).toLocaleString() }}</span>
